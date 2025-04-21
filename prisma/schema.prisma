@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://postgres:Magnotech@11@142.93.73.127:5432/rpa?schema=public"
+}
+
+model Promotor {
+  id                       BigInt                     @id @default(autoincrement())
+  cpf_promotor             String?                    @unique @db.VarChar(14)
+  promotor                 String?                    @db.VarChar(255)
+  cep                      String?                    @db.VarChar(9)
+  latitude                 Decimal?                   @db.Decimal(10, 8)
+  longitude                Decimal?                   @db.Decimal(11, 8)
+  bairro                   String?                    @db.VarChar(255)
+  cidade                   String?                    @db.VarChar(255)
+  uf                       String?                    @db.VarChar(2)
+  endereco                 String?                    @db.VarChar(1000)
+  familia                  String?                    @db.VarChar(1000)
+  horasistema              String?                    @db.VarChar(10)
+  bandeira                 String?                    @db.VarChar(1000)
+  loja                     String?                    @db.VarChar(1000)
+  cargo_campo              String?                    @db.VarChar(1000)
+  status_usuario           String?                    @db.VarChar(1000)
+  disponibilidade          disponibilidade[]
+  promotor_loja            promotor_loja[]
+  valores_promotor_periodo valores_promotor_periodo[]
+
+  @@map("promotores")
+}
+
+model Periodo {
+  id                       Int                        @id @default(autoincrement())
+  tipo_dia                 String                     @db.VarChar(20)
+  inicio                   DateTime                   @db.Time(6)
+  fim                      DateTime                   @db.Time(6)
+  descricao                String                     @db.VarChar(50)
+  valores_promotor_periodo valores_promotor_periodo[]
+
+  @@map("periodos")
+}
+
+model bandeiras {
+  id        Int     @id @default(autoincrement())
+  nome      String  @db.VarChar(100)
+  descricao String?
+  lojas     lojas[]
+}
+
+model candidato_informacoes {
+  id           Int        @id @default(autoincrement())
+  candidato_id Int
+  usuario_id   Int
+  informacao   String
+  data_criacao DateTime?  @default(now()) @db.Timestamptz(6)
+  candidatos   candidatos @relation(fields: [candidato_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  usuarios     usuarios   @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([candidato_id], map: "idx_candidato_informacoes_candidato_id")
+  @@index([data_criacao], map: "idx_candidato_informacoes_data_criacao")
+  @@index([usuario_id], map: "idx_candidato_informacoes_usuario_id")
+}
+
+model candidatos {
+  id                    Int                     @id @default(autoincrement())
+  nome                  String                  @db.VarChar(255)
+  data_nascimento       String?                 @db.VarChar(500)
+  cpf                   String                  @unique @db.VarChar(50)
+  email                 String                  @unique @db.VarChar(255)
+  telefone              String?                 @db.VarChar(50)
+  sexo                  String?                 @db.VarChar(500)
+  raca_cor              String?                 @db.VarChar(50)
+  orientacao_sexual     String?                 @db.VarChar(50)
+  possui_cnh            String?                 @db.VarChar(3)
+  categoria_cnh         String?                 @db.VarChar(500)
+  pretensao_salarial    String?                 @db.VarChar(50)
+  cidade                String?                 @db.VarChar(500)
+  endereco              String?                 @db.VarChar(500)
+  pais                  String?                 @db.VarChar(100)
+  estado                String?                 @db.VarChar(50)
+  cep                   String?                 @db.VarChar(50)
+  sistema               String?                 @db.VarChar(200)
+  planilha              String?                 @db.VarChar(3)
+  created               DateTime?               @default(now()) @db.Timestamp(6)
+  triado                String?                 @db.VarChar(3)
+  experiencia           String?                 @db.VarChar
+  latitude              Decimal?                @db.Decimal(9, 6)
+  longitude             Decimal?                @db.Decimal(9, 6)
+  link                  String?                 @db.VarChar(500)
+  candidato_informacoes candidato_informacoes[]
+  hist_candidatos       hist_candidatos[]
+}
+
+model contatos_armarinho {
+  id           Int     @id @default(autoincrement())
+  remotejid    String  @unique @db.VarChar(30)
+  nome_contato String? @db.VarChar(100)
+  status       String? @db.VarChar(50)
+}
+
+model contatos_treinador {
+  id           Int     @id @default(autoincrement())
+  remotejid    String  @unique @db.VarChar(30)
+  nome_contato String? @db.VarChar(100)
+  status       String? @db.VarChar(20)
+}
+
+model disponibilidade {
+  id          Int      @id @default(autoincrement())
+  promotor_id Int
+  segunda     Decimal? @db.Decimal(5, 2)
+  terca       Decimal? @db.Decimal(5, 2)
+  quarta      Decimal? @db.Decimal(5, 2)
+  quinta      Decimal? @db.Decimal(5, 2)
+  sexta       Decimal? @db.Decimal(5, 2)
+  sabado      Decimal? @db.Decimal(5, 2)
+  domingo     Decimal? @db.Decimal(5, 2)
+  promotores  Promotor @relation(fields: [promotor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model grupos_geral {
+  id            BigInt          @id @default(autoincrement())
+  id_grupo      Int             @unique
+  nome_grupo    String          @db.VarChar(255)
+  marca_grupo   String?         @db.VarChar(255)
+  resumo_grupos resumo_grupos[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model hist_candidatos {
+  id           Int        @id @default(autoincrement())
+  id_candidato Int
+  id_usuario   Int?
+  created      DateTime?  @default(now()) @db.Timestamp(6)
+  informacao   String?    @db.VarChar(1000)
+  usuario      usuario?   @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario")
+  candidatos   candidatos @relation(fields: [id_candidato], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model keywords {
+  id      Int    @id @default(autoincrement())
+  palavra String @db.VarChar(255)
+}
+
+model lojas {
+  id            Int             @id @default(autoincrement())
+  bandeira_id   Int?
+  nome          String          @db.VarChar(200)
+  cidade        String?         @db.VarChar(100)
+  uf            String?         @db.VarChar(2)
+  bandeiras     bandeiras?      @relation(fields: [bandeira_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  promotor_loja promotor_loja[]
+}
+
+model promotor_loja {
+  id          Int       @id @default(autoincrement())
+  promotor_id Int?
+  loja_id     Int?
+  lojas       lojas?    @relation(fields: [loja_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  promotores  Promotor? @relation(fields: [promotor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model resumo_grupos {
+  id           Int          @id @default(autoincrement())
+  datacriacao  DateTime     @default(now()) @db.Timestamp(6)
+  id_grupo     Int
+  resumo       String?
+  grupos_geral grupos_geral @relation(fields: [id_grupo], references: [id_grupo], onDelete: Cascade, map: "fk_resumo_grupos_id_grupo")
+}
+
+model tickets {
+  id          Int       @id @default(autoincrement())
+  titulo      String    @db.VarChar(255)
+  descricao   String
+  datacriacao DateTime? @default(now()) @db.Timestamp(6)
+  marca       String?   @db.VarChar
+  status      String?   @db.VarChar
+  dataprazo   DateTime? @db.Date
+  idgrupo     String?   @db.VarChar(10)
+  contato     String?   @db.VarChar(50)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model usuario {
+  id              Int               @id @default(autoincrement())
+  nome_usuario    String            @db.VarChar(100)
+  email_usuario   String            @db.VarChar(100)
+  senha           String
+  created         DateTime?         @default(now()) @db.Timestamp(6)
+  hist_candidatos hist_candidatos[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model usuarios {
+  id                    Int                     @id @default(autoincrement())
+  nome                  String                  @db.VarChar(255)
+  email                 String                  @unique @db.VarChar(255)
+  senha                 String                  @db.VarChar(255)
+  status                String                  @db.VarChar(10)
+  acesso                String                  @db.VarChar(10)
+  candidato_informacoes candidato_informacoes[]
+}
+
+model valores_promotor_periodo {
+  id          Int       @id @default(autoincrement())
+  promotor_id Int?
+  periodo_id  Int?
+  valor_hora  Decimal   @db.Decimal(10, 2)
+  data_inicio DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  data_fim    DateTime? @db.Date
+  periodos    Periodo?  @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  promotores  Promotor? @relation(fields: [promotor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([promotor_id, periodo_id], map: "uq_promotor_periodo_ativo")
+  @@unique([promotor_id, periodo_id, data_inicio])
+}
