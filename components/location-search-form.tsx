@@ -6,21 +6,12 @@ import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { searchCandidatesByLocation, getCidadesPorUF, getUFs } from "@/lib/actions"
+import { Loader2 } from "lucide-react"
 
 interface LocationSearchFormProps {
   onResults: (results: any[]) => void
   setLoading: (loading: boolean) => void
   setLocationInfo: (info: { uf: string; cidade: string; bandeira: string; loja: string }) => void
-}
-
-interface Bandeira {
-  id: number
-  nome: string
-}
-
-interface Loja {
-  id: number
-  nome: string
 }
 
 interface Cidade {
@@ -34,24 +25,32 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
   const [cidades, setCidades] = useState<Cidade[]>([])
   const [ufs, setUfs] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [loadingUFs, setLoadingUFs] = useState(true)
+  const [loadingCidades, setLoadingCidades] = useState(false)
 
   // Carregar UFs ao inicializar
   useEffect(() => {
     const loadUFs = async () => {
       try {
-        setLoading(true)
+        setLoadingUFs(true)
+        console.log("Carregando UFs...")
         const data = await getUFs()
+        console.log("UFs carregadas:", data)
+        // As UFs já vêm ordenadas da função getUFs()
         setUfs(data)
+        setError(null)
       } catch (error) {
         console.error("Erro ao carregar UFs:", error)
-        setError("Não foi possível carregar a lista de estados")
+        setError("Não foi possível carregar a lista de estados. Verifique a conexão com o banco de dados.")
+        // Usar uma lista padrão em caso de erro (já ordenada)
+        setUfs(["BA", "DF", "ES", "GO", "MG", "PR", "RJ", "RS", "SC", "SP"])
       } finally {
-        setLoading(false)
+        setLoadingUFs(false)
       }
     }
 
     loadUFs()
-  }, [setLoading])
+  }, [])
 
   const handleUFChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value
@@ -60,16 +59,17 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
 
     if (value) {
       try {
-        setLoading(true)
+        setLoadingCidades(true)
         // Carregar cidades para o UF selecionado
         const cidadesData = await getCidadesPorUF(value)
+        // As cidades já vêm ordenadas da função getCidadesPorUF()
         setCidades(cidadesData)
       } catch (error) {
         console.error("Erro ao carregar cidades:", error)
         setError("Não foi possível carregar a lista de cidades")
         setCidades([])
       } finally {
-        setLoading(false)
+        setLoadingCidades(false)
       }
 
       // Resetar cidade
@@ -129,19 +129,27 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
               <label htmlFor="uf" className="block text-sm font-medium">
                 Estado (UF) *
               </label>
-              <select
-                id="uf"
-                value={selectedUF}
-                onChange={handleUFChange}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">Selecione o Estado</option>
-                {ufs.map((uf) => (
-                  <option key={uf} value={uf}>
-                    {uf}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  id="uf"
+                  value={selectedUF}
+                  onChange={handleUFChange}
+                  disabled={loadingUFs}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Selecione o Estado</option>
+                  {ufs.map((uf) => (
+                    <option key={uf} value={uf}>
+                      {uf}
+                    </option>
+                  ))}
+                </select>
+                {loadingUFs && (
+                  <div className="absolute right-2 top-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Seleção de Cidade */}
@@ -149,27 +157,42 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
               <label htmlFor="cidade" className="block text-sm font-medium">
                 Cidade *
               </label>
-              <select
-                id="cidade"
-                value={selectedCidade}
-                onChange={(e) => setSelectedCidade(e.target.value)}
-                disabled={cidades.length === 0}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">{cidades.length === 0 ? "Selecione o Estado primeiro" : "Selecione a Cidade"}</option>
-                {cidades.map((cidade) => (
-                  <option key={cidade.id} value={cidade.nome}>
-                    {cidade.nome}
+              <div className="relative">
+                <select
+                  id="cidade"
+                  value={selectedCidade}
+                  onChange={(e) => setSelectedCidade(e.target.value)}
+                  disabled={cidades.length === 0 || loadingCidades}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">
+                    {loadingCidades
+                      ? "Carregando cidades..."
+                      : cidades.length === 0
+                        ? "Selecione o Estado primeiro"
+                        : "Selecione a Cidade"}
                   </option>
-                ))}
-              </select>
+                  {cidades.map((cidade) => (
+                    <option key={cidade.id} value={cidade.nome}>
+                      {cidade.nome}
+                    </option>
+                  ))}
+                </select>
+                {loadingCidades && (
+                  <div className="absolute right-2 top-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {error && <div className="text-sm text-red-500">{error}</div>}
+          {error && <div className="text-sm text-red-500 bg-red-50 p-2 rounded border border-red-200">{error}</div>}
 
           <div className="flex justify-end">
-            <Button type="submit">Buscar Promotores</Button>
+            <Button type="submit" disabled={!selectedUF || !selectedCidade}>
+              Buscar Promotores
+            </Button>
           </div>
         </form>
       </CardContent>

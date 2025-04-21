@@ -75,6 +75,8 @@ export function CandidateList({ title, description, candidates }: CandidateListP
 
   // Extrair todas as bandeiras únicas disponíveis
   const bandeiras = Array.from(new Set(activeCandidates.map((candidate) => candidate.bandeira)))
+    .filter(Boolean)
+    .sort() // Ordenar bandeiras alfabeticamente
 
   // Filtrar candidatos por bandeira primeiro
   const candidatosFiltradosPorBandeira = activeCandidates.filter(
@@ -83,6 +85,8 @@ export function CandidateList({ title, description, candidates }: CandidateListP
 
   // Extrair lojas disponíveis com base na bandeira selecionada
   const lojas = Array.from(new Set(candidatosFiltradosPorBandeira.map((candidate) => candidate.loja)))
+    .filter(Boolean)
+    .sort() // Ordenar lojas alfabeticamente
 
   // Resetar a loja selecionada quando a bandeira mudar
   useEffect(() => {

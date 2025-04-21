@@ -1,3 +1,5 @@
+"use server"
+
 import prisma from "@/lib/prisma"
 
 export async function registrarPedido(clienteId: number, formaPagamento: string, pedidoItens: any) {
@@ -61,9 +63,6 @@ export async function registrarPedido(clienteId: number, formaPagamento: string,
   }
 }
 
-// Vamos ajustar a função searchCandidatesByLocation para manter a compatibilidade
-// mas simplificar a lógica para focar em UF e Cidade
-
 export async function searchCandidatesByLocation({
   uf,
   cidade,
@@ -94,7 +93,7 @@ export async function searchCandidatesByLocation({
 
     return promotores.map((promotor) => ({
       ...promotor,
-      promotor: promotor.nome,
+      promotor: promotor.nome, // Mapear o campo 'nome' para 'promotor' para compatibilidade
       status_usuario: promotor.status,
       horasistema: promotor.horas_sistema,
     }))
@@ -122,7 +121,8 @@ export async function getBandeiras() {
       nome: String(bandeira), // Ensure it's a string
     }))
 
-    return bandeirasArray
+    // Ordenar bandeiras alfabeticamente
+    return bandeirasArray.sort((a, b) => a.nome.localeCompare(b.nome))
   } catch (error) {
     console.error("Erro ao buscar bandeiras:", error)
     return []
@@ -151,7 +151,8 @@ export async function getLojasPorBandeira(bandeiraId: number) {
       nome: String(loja),
     }))
 
-    return lojasArray
+    // Ordenar lojas alfabeticamente
+    return lojasArray.sort((a, b) => a.nome.localeCompare(b.nome))
   } catch (error) {
     console.error("Erro ao buscar lojas por bandeira:", error)
     return []
@@ -177,7 +178,8 @@ export async function getCidadesPorUF(uf: string) {
       nome: String(cidade),
     }))
 
-    return cidadesArray
+    // Ordenar cidades alfabeticamente
+    return cidadesArray.sort((a, b) => a.nome.localeCompare(b.nome))
   } catch (error) {
     console.error("Erro ao buscar cidades por UF:", error)
     return []
@@ -186,6 +188,13 @@ export async function getCidadesPorUF(uf: string) {
 
 export async function getUFs() {
   try {
+    console.log("Iniciando busca de UFs...")
+
+    // Verificar a conexão com o banco de dados
+    await prisma.$queryRaw`SELECT 1`
+    console.log("Conexão com o banco de dados OK")
+
+    // Buscar UFs
     const ufs = await prisma.promotor.findMany({
       select: {
         uf: true,
@@ -193,10 +202,25 @@ export async function getUFs() {
       distinct: ["uf"],
     })
 
-    return ufs.map((uf) => uf.uf).filter(Boolean) as string[]
+    console.log("UFs encontradas:", ufs)
+
+    // Se não houver UFs no banco, retornar uma lista padrão
+    if (!ufs.length) {
+      console.log("Nenhuma UF encontrada no banco, retornando lista padrão")
+      const defaultUFs = ["SP", "RJ", "MG", "RS", "PR", "SC", "BA", "ES", "GO", "DF"]
+      return defaultUFs.sort() // Ordenar a lista padrão alfabeticamente
+    }
+
+    const filteredUfs = ufs.map((uf) => uf.uf).filter(Boolean) as string[]
+
+    console.log("UFs filtradas:", filteredUfs)
+
+    // Ordenar UFs alfabeticamente
+    return filteredUfs.sort()
   } catch (error) {
-    console.error("Erro ao buscar UFs:", error)
-    return []
+    console.error("Erro detalhado ao buscar UFs:", error)
+    // Retornar uma lista padrão de UFs em caso de erro (já ordenada)
+    return ["BA", "DF", "ES", "GO", "MG", "PR", "RJ", "RS", "SC", "SP"]
   }
 }
 
@@ -219,7 +243,7 @@ export async function searchCandidatesByCEP(cep: string) {
 
     return promotores.map((promotor) => ({
       ...promotor,
-      promotor: promotor.nome,
+      promotor: promotor.nome, // Mapear o campo 'nome' para 'promotor' para compatibilidade
       status_usuario: promotor.status,
       horasistema: promotor.horas_sistema,
     }))
