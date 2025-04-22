@@ -11,7 +11,7 @@ import { Loader2 } from "lucide-react"
 interface LocationSearchFormProps {
   onResults: (results: any[]) => void
   setLoading: (loading: boolean) => void
-  setLocationInfo: (info: { uf: string; cidade: string; bandeira: string; loja: string }) => void
+  setLocationInfo: (info: { uf: string; cidade: string }) => void
 }
 
 interface Cidade {
@@ -95,15 +95,13 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
       const results = await searchCandidatesByLocation({
         uf: selectedUF,
         cidade: selectedCidade,
-        bandeira: "Todas", // Valor padrão
-        loja: "Todas", // Valor padrão
+        bandeira: "Todas",
+        loja: "Todas",
       })
 
       setLocationInfo({
         uf: selectedUF,
         cidade: selectedCidade,
-        bandeira: "Todas",
-        loja: "Todas",
       })
 
       onResults(results)

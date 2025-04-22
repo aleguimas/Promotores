@@ -1,6 +1,9 @@
 export interface PeriodoPreco {
   id: number
-  periodo: string
+  tipo_dia: string
+  inicio: string
+  fim: string
+  descricao: string
   valor_hora?: number
 }
 
@@ -13,23 +16,23 @@ export async function getPeriodosByDay(day: string): Promise<PeriodoPreco[]> {
     // Períodos para dias úteis (segunda a sexta)
     if (["segunda", "terca", "quarta", "quinta", "sexta"].includes(day)) {
       return [
-        { id: 1, periodo: "Manhã (8h-12h)" },
-        { id: 2, periodo: "Tarde (13h-17h)" },
-        { id: 3, periodo: "Integral (8h-17h)" },
+        { id: 1, tipo_dia: "segunda_sexta", inicio: "08:00", fim: "12:00", descricao: "Manhã (8h-12h)" },
+        { id: 2, tipo_dia: "segunda_sexta", inicio: "13:00", fim: "17:00", descricao: "Tarde (13h-17h)" },
+        { id: 3, tipo_dia: "segunda_sexta", inicio: "08:00", fim: "17:00", descricao: "Integral (8h-17h)" },
       ]
     }
 
     // Períodos para sábado
     if (day === "sabado") {
       return [
-        { id: 4, periodo: "Manhã (8h-12h)" },
-        { id: 5, periodo: "Tarde (13h-16h)" },
+        { id: 4, tipo_dia: "sabado", inicio: "08:00", fim: "12:00", descricao: "Manhã (8h-12h)" },
+        { id: 5, tipo_dia: "sabado", inicio: "13:00", fim: "16:00", descricao: "Tarde (13h-16h)" },
       ]
     }
 
     // Períodos para domingo
     if (day === "domingo") {
-      return [{ id: 6, periodo: "Manhã (9h-13h)" }]
+      return [{ id: 6, tipo_dia: "domingo", inicio: "09:00", fim: "13:00", descricao: "Manhã (9h-13h)" }]
     }
 
     return []

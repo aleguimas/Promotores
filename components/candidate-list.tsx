@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { useCart, type DiaDaSemana, diasDaSemana, type CartItem } from "../contexts/cart-context"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { getPeriodosByDay, calcularValorHora, type PeriodoPreco } from "../types/pricing"
+import { getPeriodosByTipoDia, getValorHoraPromotorPeriodo } from "../lib/actions"
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,7 @@ interface Disponibilidade {
 
 interface Candidate {
   id: number
+  nome: string
   promotor: string
   familia: string
   horasistema: string
@@ -42,6 +43,7 @@ interface Candidate {
   cargo_campo: string
   status_usuario: string
   disponibilidade?: Disponibilidade
+  disponibilidades?: Disponibilidade[]
 }
 
 // Interface para armazenar a seleção de horas e período por dia
@@ -51,6 +53,15 @@ interface DaySelection {
   period: string
 }
 
+// Interface para períodos
+interface Periodo {
+  id: number
+  tipo_dia: string
+  inicio: string
+  fim: string
+  descricao: string
+}
+
 // Dias úteis (segunda a sexta)
 const DIAS_UTEIS: DiaDaSemana[] = ["segunda", "terca", "quarta", "quinta", "sexta"]
 
@@ -58,6 +69,340 @@ interface CandidateListProps {
   title: string
   description: string
   candidates: Candidate[]
+}
+
+// Interface for the DaySelectionForm props
+interface DaySelectionFormProps {
+  candidate: Candidate
+  isFormOpen: boolean
+  isSelected: boolean
+  candidateSelections: Record<number, Record<DiaDaSemana, DaySelection>>
+  handleDaySelectionChange: (candidateId: number, day: DiaDaSemana, field: keyof DaySelection, value: any) => void
+  toggleSelectionForm: (candidateId: number) => void
+  toggleCandidateSelection: (candidate: Candidate) => void
+}
+
+// Update the function signature to include the props type
+function DaySelectionForm({
+  candidate,
+  isFormOpen,
+  isSelected,
+  candidateSelections,
+  handleDaySelectionChange,
+  toggleSelectionForm,
+  toggleCandidateSelection,
+}: DaySelectionFormProps) {
+  const { toast } = useToast()
+  const [localPeriodosPorDia, setLocalPeriodosPorDia] = useState<Record<string, Periodo[]>>({
+    segunda: [],
+    terca: [],
+    quarta: [],
+    quinta: [],
+    sexta: [],
+    sabado: [],
+    domingo: [],
+  })
+
+  // Função para carregar os períodos disponíveis para este candidato
+  const fetchPeriodos = useCallback(async () => {
+    try {
+      // Carregar períodos para cada tipo de dia
+      const [segundaFeiraPeriodos, sabadoPeriodos, domingoPeriodos] = await Promise.all([
+        getPeriodosByTipoDia("segunda_sexta"),
+        getPeriodosByTipoDia("sabado"),
+        getPeriodosByTipoDia("domingo"),
+      ])
+
+      // Armazenar os períodos no estado local
+      setLocalPeriodosPorDia({
+        segunda: segundaFeiraPeriodos,
+        terca: segundaFeiraPeriodos,
+        quarta: segundaFeiraPeriodos,
+        quinta: segundaFeiraPeriodos,
+        sexta: segundaFeiraPeriodos,
+        sabado: sabadoPeriodos,
+        domingo: domingoPeriodos,
+      })
+    } catch (error) {
+      console.error("Erro ao buscar períodos:", error)
+      toast({
+        title: "Erro ao carregar períodos",
+        description: "Não foi possível carregar os períodos disponíveis.",
+        variant: "destructive",
+      })
+    }
+  }, [toast])
+
+  // Carregar períodos quando o formulário for aberto
+  useEffect(() => {
+    if (isFormOpen) {
+      fetchPeriodos()
+    }
+  }, [isFormOpen, fetchPeriodos])
+
+  // Get disponibilidade from candidate
+  const disponibilidade = candidate.disponibilidades?.[0] || candidate.disponibilidade
+
+  if (!disponibilidade) return null
+
+  // Inicializar seleções para este candidato
+  const selection = candidateSelections[candidate.id] || {
+    segunda: { selected: false, hours: "", period: "" },
+    terca: { selected: false, hours: "", period: "" },
+    quarta: { selected: false, hours: "", period: "" },
+    quinta: { selected: false, hours: "", period: "" },
+    sexta: { selected: false, hours: "", period: "" },
+    sabado: { selected: false, hours: "", period: "" },
+    domingo: { selected: false, hours: "", period: "" },
+  }
+
+  if (!isFormOpen) {
+    return (
+      <div className="mt-3 flex justify-between items-center">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => toggleSelectionForm(candidate.id)}
+          className="flex items-center"
+        >
+          Selecionar dias e horas
+          <ChevronDown className="ml-2 h-4 w-4" />
+        </Button>
+
+        {isSelected && (
+          <Button variant="destructive" size="sm" onClick={() => toggleCandidateSelection(candidate)}>
+            Remover
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3">
+      <div className="flex justify-between items-center">
+        <h4 className="font-medium text-sm">Selecione os dias e horas:</h4>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => toggleSelectionForm(candidate.id)}
+          className="flex items-center"
+        >
+          Fechar
+          <ChevronUp className="ml-2 h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Dias úteis (segunda a sexta) */}
+      <div className="space-y-4">
+        {DIAS_UTEIS.map((day) => {
+          const dispHoras = Number.parseInt(disponibilidade[day] || "0")
+          const dayName = diasDaSemana[day]
+          const daySelection = selection[day]
+          const periodos = localPeriodosPorDia[day] || []
+
+          // Não mostrar dias sem disponibilidade
+          if (dispHoras === 0) return null
+
+          return (
+            <div key={day} className="border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id={`${candidate.id}-${day}`}
+                  checked={daySelection.selected}
+                  onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, day, "selected", checked)}
+                />
+                <Label htmlFor={`${candidate.id}-${day}`} className="text-sm font-medium">
+                  {dayName}
+                </Label>
+              </div>
+
+              {daySelection.selected && (
+                <div className="ml-6 mt-2 space-y-3">
+                  <div>
+                    <Label htmlFor={`${candidate.id}-${day}-hours`} className="text-xs mb-1 block">
+                      Horas:
+                    </Label>
+                    <input
+                      id={`${candidate.id}-${day}-hours`}
+                      type="number"
+                      min="1"
+                      max={dispHoras}
+                      value={daySelection.hours}
+                      onChange={(e) => {
+                        const value = e.target.value ? Number(e.target.value) : ""
+                        // Validar que não excede a disponibilidade
+                        if (value === "" || (typeof value === "number" && value <= dispHoras)) {
+                          handleDaySelectionChange(candidate.id, day, "hours", value)
+                        }
+                      }}
+                      className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs mb-1 block">Período:</Label>
+                    <RadioGroup
+                      value={daySelection.period}
+                      onValueChange={(value) => handleDaySelectionChange(candidate.id, day, "period", value)}
+                      className="space-y-1"
+                    >
+                      {periodos.map((periodo) => (
+                        <div key={periodo.id} className="flex items-center space-x-2">
+                          <RadioGroupItem
+                            value={String(periodo.id)}
+                            id={`${candidate.id}-${day}-period-${periodo.id}`}
+                          />
+                          <Label htmlFor={`${candidate.id}-${day}-period-${periodo.id}`} className="text-sm">
+                            {periodo.descricao}
+                          </Label>
+                        </div>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {/* Sábado */}
+        {disponibilidade.sabado !== "0" && (
+          <div className="border-b pb-3">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id={`${candidate.id}-sabado`}
+                checked={selection.sabado.selected}
+                onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, "sabado", "selected", checked)}
+              />
+              <Label htmlFor={`${candidate.id}-sabado`} className="text-sm font-medium">
+                Sábado
+              </Label>
+            </div>
+
+            {selection.sabado.selected && (
+              <div className="ml-6 mt-2 space-y-3">
+                <div>
+                  <Label htmlFor={`${candidate.id}-sabado-hours`} className="text-xs mb-1 block">
+                    Horas:
+                  </Label>
+                  <input
+                    id={`${candidate.id}-sabado-hours`}
+                    type="number"
+                    min="1"
+                    max={Number.parseInt(disponibilidade.sabado)}
+                    value={selection.sabado.hours}
+                    onChange={(e) => {
+                      const value = e.target.value ? Number(e.target.value) : ""
+                      if (
+                        value === "" ||
+                        (typeof value === "number" && value <= Number.parseInt(disponibilidade.sabado))
+                      ) {
+                        handleDaySelectionChange(candidate.id, "sabado", "hours", value)
+                      }
+                    }}
+                    className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-xs mb-1 block">Período:</Label>
+                  <RadioGroup
+                    value={selection.sabado.period}
+                    onValueChange={(value) => handleDaySelectionChange(candidate.id, "sabado", "period", value)}
+                    className="space-y-1"
+                  >
+                    {localPeriodosPorDia["sabado"].map((periodo) => (
+                      <div key={periodo.id} className="flex items-center space-x-2">
+                        <RadioGroupItem value={String(periodo.id)} id={`${candidate.id}-sabado-period-${periodo.id}`} />
+                        <Label htmlFor={`${candidate.id}-sabado-period-${periodo.id}`} className="text-sm">
+                          {periodo.descricao}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Domingo */}
+        {disponibilidade.domingo !== "0" && (
+          <div className="border-b pb-3">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id={`${candidate.id}-domingo`}
+                checked={selection.domingo.selected}
+                onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, "domingo", "selected", checked)}
+              />
+              <Label htmlFor={`${candidate.id}-domingo`} className="text-sm font-medium">
+                Domingo
+              </Label>
+            </div>
+
+            {selection.domingo.selected && (
+              <div className="ml-6 mt-2 space-y-3">
+                <div>
+                  <Label htmlFor={`${candidate.id}-domingo-hours`} className="text-xs mb-1 block">
+                    Horas:
+                  </Label>
+                  <input
+                    id={`${candidate.id}-domingo-hours`}
+                    type="number"
+                    min="1"
+                    max={Number.parseInt(disponibilidade.domingo)}
+                    value={selection.domingo.hours}
+                    onChange={(e) => {
+                      const value = e.target.value ? Number(e.target.value) : ""
+                      if (
+                        value === "" ||
+                        (typeof value === "number" && value <= Number.parseInt(disponibilidade.domingo))
+                      ) {
+                        handleDaySelectionChange(candidate.id, "domingo", "hours", value)
+                      }
+                    }}
+                    className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-xs mb-1 block">Período:</Label>
+                  <RadioGroup
+                    value={selection.domingo.period}
+                    onValueChange={(value) => handleDaySelectionChange(candidate.id, "domingo", "period", value)}
+                    className="space-y-1"
+                  >
+                    {localPeriodosPorDia["domingo"].map((periodo) => (
+                      <div key={periodo.id} className="flex items-center space-x-2">
+                        <RadioGroupItem
+                          value={String(periodo.id)}
+                          id={`${candidate.id}-domingo-period-${periodo.id}`}
+                        />
+                        <Label htmlFor={`${candidate.id}-domingo-period-${periodo.id}`} className="text-sm">
+                          {periodo.descricao}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end mt-4">
+        <Button
+          onClick={() => toggleCandidateSelection(candidate)}
+          variant={isSelected ? "destructive" : "default"}
+          size="sm"
+        >
+          {isSelected ? "Remover" : "Adicionar"}
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 export function CandidateList({ title, description, candidates }: CandidateListProps) {
@@ -128,40 +473,50 @@ export function CandidateList({ title, description, candidates }: CandidateListP
   const [paymentMethod, setPaymentMethod] = useState("")
   const [totalValue, setTotalValue] = useState(0)
 
-  // Estado para armazenar os períodos por dia
-  const [periodosPorDia, setPeriodosPorDia] = useState<Record<string, PeriodoPreco[]>>({
-    segunda: [],
-    terca: [],
-    quarta: [],
-    quinta: [],
-    sexta: [],
-    sabado: [],
-    domingo: [],
-  })
-
   // Calcula o valor total do carrinho
   useEffect(() => {
     const total = items.reduce((acc, item) => acc + item.totalValue, 0)
     setTotalValue(total)
   }, [items])
 
-  // Inicializa as seleções para um candidato se ainda não existirem
-  const initializeSelections = (candidateId: number, disponibilidade?: Disponibilidade) => {
-    if (!candidateSelections[candidateId]) {
+  // Inicializa as seleções para todos os candidatos visíveis
+  useEffect(() => {
+    const newSelections: Record<number, Record<DiaDaSemana, DaySelection>> = { ...candidateSelections }
+
+    visibleCandidates.forEach((candidate) => {
+      // Se já existe uma seleção para este candidato, não fazer nada
+      if (newSelections[candidate.id]) return
+
       // Verificar se o candidato já está no carrinho
-      const existingItem = items.find((item) => item.id === candidateId)
+      const existingItem = items.find((item) => item.id === candidate.id)
 
       if (existingItem) {
         // Se já estiver no carrinho, usar as seleções existentes
-        setCandidateSelections((prev) => ({
-          ...prev,
-          [candidateId]: existingItem.selectedDays,
-        }))
-        return existingItem.selectedDays
+        newSelections[candidate.id] = existingItem.selectedDays
+      } else {
+        // Caso contrário, inicializar com valores vazios
+        newSelections[candidate.id] = {
+          segunda: { selected: false, hours: "", period: "" },
+          terca: { selected: false, hours: "", period: "" },
+          quarta: { selected: false, hours: "", period: "" },
+          quinta: { selected: false, hours: "", period: "" },
+          sexta: { selected: false, hours: "", period: "" },
+          sabado: { selected: false, hours: "", period: "" },
+          domingo: { selected: false, hours: "", period: "" },
+        }
       }
+    })
 
-      // Caso contrário, inicializar com valores vazios
-      const initialSelections: Record<DiaDaSemana, DaySelection> = {
+    // Atualizar o estado apenas se houver mudanças
+    if (Object.keys(newSelections).length > Object.keys(candidateSelections).length) {
+      setCandidateSelections(newSelections)
+    }
+  }, [visibleCandidates, items])
+
+  // Atualiza a seleção de um dia específico para um candidato
+  const handleDaySelectionChange = (candidateId: number, day: DiaDaSemana, field: keyof DaySelection, value: any) => {
+    setCandidateSelections((prev) => {
+      const candidateSelection = prev[candidateId] || {
         segunda: { selected: false, hours: "", period: "" },
         terca: { selected: false, hours: "", period: "" },
         quarta: { selected: false, hours: "", period: "" },
@@ -170,22 +525,6 @@ export function CandidateList({ title, description, candidates }: CandidateListP
         sabado: { selected: false, hours: "", period: "" },
         domingo: { selected: false, hours: "", period: "" },
       }
-
-      setCandidateSelections((prev) => ({
-        ...prev,
-        [candidateId]: initialSelections,
-      }))
-
-      return initialSelections
-    }
-
-    return candidateSelections[candidateId]
-  }
-
-  // Atualiza a seleção de um dia específico para um candidato
-  const handleDaySelectionChange = (candidateId: number, day: DiaDaSemana, field: keyof DaySelection, value: any) => {
-    setCandidateSelections((prev) => {
-      const candidateSelection = prev[candidateId] || initializeSelections(candidateId)
 
       // Se estamos desmarcando o dia, limpar as horas e período
       if (field === "selected" && value === false) {
@@ -213,7 +552,8 @@ export function CandidateList({ title, description, candidates }: CandidateListP
 
   // Verifica se o candidato pode ser adicionado ao carrinho
   const canAddCandidate = (candidateId: number, disponibilidade?: Disponibilidade) => {
-    const selection = candidateSelections[candidateId] || initializeSelections(candidateId, disponibilidade)
+    const selection = candidateSelections[candidateId]
+    if (!selection) return false
 
     // Verifica se pelo menos um dia foi selecionado
     const hasSelectedDay = Object.values(selection).some((day) => day.selected)
@@ -240,8 +580,20 @@ export function CandidateList({ title, description, candidates }: CandidateListP
       // Remove do carrinho
       removeItem(candidate.id)
     } else {
+      // Get disponibilidade from candidate
+      const disponibilidade = candidate.disponibilidades?.[0] || candidate.disponibilidade
+
+      if (!disponibilidade) {
+        toast({
+          title: "Erro ao adicionar promotor",
+          description: "Não foi possível encontrar a disponibilidade do promotor.",
+          variant: "destructive",
+        })
+        return
+      }
+
       // Verifica se as seleções estão completas
-      if (canAddCandidate(candidate.id, candidate.disponibilidade)) {
+      if (canAddCandidate(candidate.id, disponibilidade)) {
         const selection = candidateSelections[candidate.id]
 
         try {
@@ -253,9 +605,10 @@ export function CandidateList({ title, description, candidates }: CandidateListP
           const valorPromises = Object.entries(selection).map(async ([day, daySelection]) => {
             if (daySelection.selected && daySelection.hours !== "") {
               const hours = Number(daySelection.hours)
+              const periodoId = Number(daySelection.period)
 
-              // Calcular o valor com base no dia, período e promotor
-              const valorHora = await calcularValorHora(candidate.id, day, daySelection.period)
+              // Calcular o valor com base no promotor e período
+              const valorHora = await getValorHoraPromotorPeriodo(candidate.id, periodoId)
               return { day, hours, valorHora }
             }
             return null
@@ -273,7 +626,14 @@ export function CandidateList({ title, description, candidates }: CandidateListP
           })
 
           const cartItem: CartItem = {
-            ...candidate,
+            id: candidate.id,
+            promotor: candidate.promotor || candidate.nome,
+            familia: candidate.familia || "",
+            cidade: candidate.cidade || "",
+            uf: candidate.uf || "",
+            bandeira: candidate.bandeira || "",
+            loja: candidate.loja || "",
+            cargo_campo: candidate.cargo_campo || "",
             selectedDays: selection,
             totalHours,
             totalValue,
@@ -289,7 +649,7 @@ export function CandidateList({ title, description, candidates }: CandidateListP
 
           toast({
             title: "Promotor adicionado",
-            description: `${candidate.promotor} foi adicionado ao carrinho`,
+            description: `${candidate.promotor || candidate.nome} foi adicionado ao carrinho`,
             variant: "default",
           })
         } catch (error) {
@@ -359,295 +719,6 @@ export function CandidateList({ title, description, candidates }: CandidateListP
             <span className="font-semibold">Dom</span>
             <span>{disponibilidade.domingo}h</span>
           </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Função para renderizar o formulário de seleção de dias
-  const renderDaySelectionForm = (candidate: Candidate) => {
-    if (!candidate.disponibilidade) return null
-
-    const isFormOpen = openSelectionForms[candidate.id] || false
-
-    // Antes de renderizar o formulário, buscar os períodos
-    const [periodos, setPeriodos] = useState<PeriodoPreco[]>([])
-
-    // Usar useCallback para criar uma função memoized para buscar os períodos
-    const fetchPeriodos = useCallback(async () => {
-      try {
-        const segundaFeiraPeriodos = await getPeriodosByDay("segunda")
-        const sabadoPeriodos = await getPeriodosByDay("sabado")
-        const domingoPeriodos = await getPeriodosByDay("domingo")
-
-        // Armazenar os períodos no estado
-        setPeriodosPorDia({
-          segunda: segundaFeiraPeriodos,
-          terca: segundaFeiraPeriodos,
-          quarta: segundaFeiraPeriodos,
-          quinta: segundaFeiraPeriodos,
-          sexta: segundaFeiraPeriodos,
-          sabado: sabadoPeriodos,
-          domingo: domingoPeriodos,
-        })
-      } catch (error) {
-        console.error("Erro ao buscar períodos:", error)
-        toast({
-          title: "Erro ao carregar períodos",
-          description: "Não foi possível carregar os períodos disponíveis. Usando valores padrão.",
-          variant: "destructive",
-        })
-      }
-    }, [toast])
-
-    useEffect(() => {
-      if (isFormOpen) {
-        fetchPeriodos()
-      }
-    }, [isFormOpen, fetchPeriodos])
-
-    const isSelected = items.some((c) => c.id === candidate.id)
-
-    if (!isFormOpen) {
-      return (
-        <div className="mt-3 flex justify-between items-center">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toggleSelectionForm(candidate.id)}
-            className="flex items-center"
-          >
-            Selecionar dias e horas
-            <ChevronDown className="ml-2 h-4 w-4" />
-          </Button>
-
-          {isSelected && (
-            <Button variant="destructive" size="sm" onClick={() => toggleCandidateSelection(candidate)}>
-              Remover
-            </Button>
-          )}
-        </div>
-      )
-    }
-
-    const selection = candidateSelections[candidate.id] || initializeSelections(candidate.id, candidate.disponibilidade)
-    const disponibilidade = candidate.disponibilidade
-
-    return (
-      <div className="mt-3 space-y-3 border-t pt-3">
-        <div className="flex justify-between items-center">
-          <h4 className="font-medium text-sm">Selecione os dias e horas:</h4>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => toggleSelectionForm(candidate.id)}
-            className="flex items-center"
-          >
-            Fechar
-            <ChevronUp className="ml-2 h-4 w-4" />
-          </Button>
-        </div>
-
-        {/* Dias úteis (segunda a sexta) */}
-        <div className="space-y-4">
-          {DIAS_UTEIS.map((day) => {
-            const dispHoras = Number.parseInt(disponibilidade[day] || "0")
-            const dayName = diasDaSemana[day]
-            const daySelection = selection[day]
-
-            // Não mostrar dias sem disponibilidade
-            if (dispHoras === 0) return null
-
-            return (
-              <div key={day} className="border-b pb-3">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`${candidate.id}-${day}`}
-                    checked={daySelection.selected}
-                    onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, day, "selected", checked)}
-                  />
-                  <Label htmlFor={`${candidate.id}-${day}`} className="text-sm font-medium">
-                    {dayName}
-                  </Label>
-                </div>
-
-                {daySelection.selected && (
-                  <div className="ml-6 mt-2 space-y-3">
-                    <div>
-                      <Label htmlFor={`${candidate.id}-${day}-hours`} className="text-xs mb-1 block">
-                        Horas:
-                      </Label>
-                      <input
-                        id={`${candidate.id}-${day}-hours`}
-                        type="number"
-                        min="1"
-                        max={dispHoras}
-                        value={daySelection.hours}
-                        onChange={(e) => {
-                          const value = e.target.value ? Number(e.target.value) : ""
-                          // Validar que não excede a disponibilidade
-                          if (value === "" || (typeof value === "number" && value <= dispHoras)) {
-                            handleDaySelectionChange(candidate.id, day, "hours", value)
-                          }
-                        }}
-                        className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <Label className="text-xs mb-1 block">Período:</Label>
-                      <RadioGroup
-                        value={daySelection.period}
-                        onValueChange={(value) => handleDaySelectionChange(candidate.id, day, "period", value)}
-                        className="space-y-1"
-                      >
-                        {periodosPorDia[day].map((periodo, index) => (
-                          <div key={index} className="flex items-center space-x-2">
-                            <RadioGroupItem value={periodo.periodo} id={`${candidate.id}-${day}-period-${index}`} />
-                            <Label htmlFor={`${candidate.id}-${day}-period-${index}`} className="text-sm">
-                              {periodo.periodo}
-                            </Label>
-                          </div>
-                        ))}
-                      </RadioGroup>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          {/* Sábado */}
-          {disponibilidade.sabado !== "0" && (
-            <div className="border-b pb-3">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={`${candidate.id}-sabado`}
-                  checked={selection.sabado.selected}
-                  onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, "sabado", "selected", checked)}
-                />
-                <Label htmlFor={`${candidate.id}-sabado`} className="text-sm font-medium">
-                  Sábado
-                </Label>
-              </div>
-
-              {selection.sabado.selected && (
-                <div className="ml-6 mt-2 space-y-3">
-                  <div>
-                    <Label htmlFor={`${candidate.id}-sabado-hours`} className="text-xs mb-1 block">
-                      Horas:
-                    </Label>
-                    <input
-                      id={`${candidate.id}-sabado-hours`}
-                      type="number"
-                      min="1"
-                      max={Number.parseInt(disponibilidade.sabado)}
-                      value={selection.sabado.hours}
-                      onChange={(e) => {
-                        const value = e.target.value ? Number(e.target.value) : ""
-                        if (
-                          value === "" ||
-                          (typeof value === "number" && value <= Number.parseInt(disponibilidade.sabado))
-                        ) {
-                          handleDaySelectionChange(candidate.id, "sabado", "hours", value)
-                        }
-                      }}
-                      className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
-                    />
-                  </div>
-
-                  <div>
-                    <Label className="text-xs mb-1 block">Período:</Label>
-                    <RadioGroup
-                      value={selection.sabado.period}
-                      onValueChange={(value) => handleDaySelectionChange(candidate.id, "sabado", "period", value)}
-                      className="space-y-1"
-                    >
-                      {periodosPorDia["sabado"].map((periodo, index) => (
-                        <div key={index} className="flex items-center space-x-2">
-                          <RadioGroupItem value={periodo.periodo} id={`${candidate.id}-sabado-period-${index}`} />
-                          <Label htmlFor={`${candidate.id}-sabado-period-${index}`} className="text-sm">
-                            {periodo.periodo}
-                          </Label>
-                        </div>
-                      ))}
-                    </RadioGroup>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Domingo */}
-          {disponibilidade.domingo !== "0" && (
-            <div className="border-b pb-3">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={`${candidate.id}-domingo`}
-                  checked={selection.domingo.selected}
-                  onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, "domingo", "selected", checked)}
-                />
-                <Label htmlFor={`${candidate.id}-domingo`} className="text-sm font-medium">
-                  Domingo
-                </Label>
-              </div>
-
-              {selection.domingo.selected && (
-                <div className="ml-6 mt-2 space-y-3">
-                  <div>
-                    <Label htmlFor={`${candidate.id}-domingo-hours`} className="text-xs mb-1 block">
-                      Horas:
-                    </Label>
-                    <input
-                      id={`${candidate.id}-domingo-hours`}
-                      type="number"
-                      min="1"
-                      max={Number.parseInt(disponibilidade.domingo)}
-                      value={selection.domingo.hours}
-                      onChange={(e) => {
-                        const value = e.target.value ? Number(e.target.value) : ""
-                        if (
-                          value === "" ||
-                          (typeof value === "number" && value <= Number.parseInt(disponibilidade.domingo))
-                        ) {
-                          handleDaySelectionChange(candidate.id, "domingo", "hours", value)
-                        }
-                      }}
-                      className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
-                    />
-                  </div>
-
-                  <div>
-                    <Label className="text-xs mb-1 block">Período:</Label>
-                    <RadioGroup
-                      value={selection.domingo.period}
-                      onValueChange={(value) => handleDaySelectionChange(candidate.id, "domingo", "period", value)}
-                      className="space-y-1"
-                    >
-                      {periodosPorDia["domingo"].map((periodo, index) => (
-                        <div key={index} className="flex items-center space-x-2">
-                          <RadioGroupItem value={periodo.periodo} id={`${candidate.id}-domingo-period-${index}`} />
-                          <Label htmlFor={`${candidate.id}-domingo-period-${index}`} className="text-sm">
-                            {periodo.periodo}
-                          </Label>
-                        </div>
-                      ))}
-                    </RadioGroup>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end mt-4">
-          <Button
-            onClick={() => toggleCandidateSelection(candidate)}
-            variant={isSelected ? "destructive" : "default"}
-            size="sm"
-          >
-            {isSelected ? "Remover" : "Adicionar"}
-          </Button>
         </div>
       </div>
     )
@@ -744,27 +815,40 @@ export function CandidateList({ title, description, candidates }: CandidateListP
             </p>
           ) : (
             <div className="space-y-6">
-              {visibleCandidates.map((candidate) => (
-                <div key={candidate.id} className="flex flex-col border rounded-lg p-4 shadow-sm">
-                  <div className="flex justify-between items-center">
-                    <p className="font-medium">
-                      {candidate.promotor} | {candidate.familia}
-                    </p>
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    <p>
-                      {candidate.cidade}/{candidate.uf} - {candidate.bandeira} - {candidate.loja}
-                    </p>
-                    <p>Cargo: {candidate.cargo_campo}</p>
-                  </div>
+              {visibleCandidates.map((candidate) => {
+                // Get disponibilidade from candidate
+                const disponibilidade = candidate.disponibilidades?.[0] || candidate.disponibilidade
 
-                  {/* Disponibilidade por dia da semana */}
-                  {renderDisponibilidade(candidate.disponibilidade)}
+                return (
+                  <div key={candidate.id} className="flex flex-col border rounded-lg p-4 shadow-sm">
+                    <div className="flex justify-between items-center">
+                      <p className="font-medium">
+                        {candidate.promotor || candidate.nome} | {candidate.familia}
+                      </p>
+                    </div>
+                    <div className="text-sm text-muted-foreground mt-1">
+                      <p>
+                        {candidate.cidade}/{candidate.uf} - {candidate.bandeira} - {candidate.loja}
+                      </p>
+                      <p>Cargo: {candidate.cargo_campo}</p>
+                    </div>
 
-                  {/* Formulário de seleção de dias */}
-                  {renderDaySelectionForm(candidate)}
-                </div>
-              ))}
+                    {/* Disponibilidade por dia da semana */}
+                    {renderDisponibilidade(disponibilidade)}
+
+                    {/* Formulário de seleção de dias */}
+                    <DaySelectionForm
+                      candidate={candidate}
+                      isFormOpen={openSelectionForms[candidate.id] || false}
+                      isSelected={items.some((c) => c.id === candidate.id)}
+                      candidateSelections={candidateSelections}
+                      handleDaySelectionChange={handleDaySelectionChange}
+                      toggleSelectionForm={toggleSelectionForm}
+                      toggleCandidateSelection={toggleCandidateSelection}
+                    />
+                  </div>
+                )
+              })}
 
               {/* Botão "Ver mais" */}
               {hasMoreToShow && (
@@ -808,7 +892,7 @@ export function CandidateList({ title, description, candidates }: CandidateListP
                           .filter(([_, daySelection]) => daySelection.selected)
                           .map(([day, daySelection]) => (
                             <div key={day}>
-                              {diasDaSemana[day as DiaDaSemana]}: {daySelection.hours}h - {daySelection.period}
+                              {diasDaSemana[day as DiaDaSemana]}: {daySelection.hours}h - Período: {daySelection.period}
                             </div>
                           ))}
                       </div>

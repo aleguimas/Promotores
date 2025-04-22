@@ -3,19 +3,23 @@
 import { useState, useEffect } from "react"
 import { LocationSearchForm } from "@/components/location-search-form"
 import { CandidateList } from "@/components/candidate-list"
-import { Loader2 } from "lucide-react"
-import { checkDatabaseConnection, seedDatabaseIfEmpty } from "@/lib/server-actions"
+import { Loader2, Database, RefreshCw } from "lucide-react"
+import { checkDatabaseConnection, seedDatabaseIfEmpty, testDatabaseConnection } from "@/lib/server-actions"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 export default function Home() {
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(true)
+  const [testingConnection, setTestingConnection] = useState(false)
   const [dbStatus, setDbStatus] = useState<{
     success: boolean
     message: string
     error?: string
+    dbUrl?: string
+    result?: any
   } | null>(null)
   const [locationInfo, setLocationInfo] = useState<{
     uf?: string
@@ -52,14 +56,37 @@ export default function Home() {
     initializeDatabase()
   }, [])
 
+  // Função para testar a conexão com o banco de dados
+  const handleTestConnection = async () => {
+    setTestingConnection(true)
+    try {
+      const result = await testDatabaseConnection()
+      setDbStatus(result)
+    } catch (error) {
+      console.error("Erro ao testar conexão:", error)
+      setDbStatus({
+        success: false,
+        message: "Erro ao testar conexão",
+        error: error instanceof Error ? error.message : "Erro desconhecido",
+      })
+    } finally {
+      setTestingConnection(false)
+    }
+  }
+
   // Função para lidar com os resultados da pesquisa
   const handleSearchResults = (results: any[]) => {
     setSearchResults(results)
   }
 
-  // Função para atualizar as informações de localização
-  const handleLocationInfo = (info: any) => {
-    setLocationInfo(info)
+  // Atualizar a função handleLocationInfo para aceitar apenas UF e cidade
+  const handleLocationInfo = (info: { uf: string; cidade: string }) => {
+    setLocationInfo({
+      uf: info.uf,
+      cidade: info.cidade,
+      bandeira: "Todas",
+      loja: "Todas",
+    })
   }
 
   // Construir o título e descrição com base nas informações de localização
@@ -92,12 +119,45 @@ export default function Home() {
     <main className="space-y-6">
       <h1 className="text-3xl font-bold">Marketplace de Promotores</h1>
 
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Database className="h-5 w-5" />
+          <span className="font-medium">Status do Banco de Dados</span>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleTestConnection} disabled={testingConnection}>
+          {testingConnection ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Testando...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Testar Conexão
+            </>
+          )}
+        </Button>
+      </div>
+
       {dbStatus && (
         <Alert variant={dbStatus.success ? "default" : "destructive"}>
           {dbStatus.success ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
           <AlertTitle>{dbStatus.success ? "Conexão estabelecida" : "Erro de conexão"}</AlertTitle>
           <AlertDescription>
-            {dbStatus.message}
+            <div>{dbStatus.message}</div>
+
+            {dbStatus.dbUrl && (
+              <div className="mt-1 text-xs">
+                <strong>URL do banco:</strong> {dbStatus.dbUrl}
+              </div>
+            )}
+
+            {dbStatus.result && (
+              <div className="mt-1 text-xs">
+                <strong>Resultado:</strong> {JSON.stringify(dbStatus.result)}
+              </div>
+            )}
+
             {dbStatus.error && (
               <div className="mt-2 text-xs">
                 <details>

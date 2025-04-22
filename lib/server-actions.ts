@@ -42,27 +42,99 @@ export async function seedDatabaseIfEmpty() {
 
     console.log("Banco de dados vazio. Iniciando seed...")
 
+    // Verificar se as tabelas necessárias existem
+    try {
+      // Verificar se a tabela bandeiras existe
+      await prisma.$executeRaw`SELECT 1 FROM bandeiras LIMIT 1`
+    } catch (error) {
+      console.log("Tabela bandeiras não existe. Criando...")
+      await prisma.$executeRaw`
+        CREATE TABLE IF NOT EXISTS bandeiras (
+          id SERIAL PRIMARY KEY,
+          nome VARCHAR(255) NOT NULL,
+          descricao TEXT
+        )
+      `
+    }
+
+    try {
+      // Verificar se a tabela lojas existe
+      await prisma.$executeRaw`SELECT 1 FROM lojas LIMIT 1`
+    } catch (error) {
+      console.log("Tabela lojas não existe. Criando...")
+      await prisma.$executeRaw`
+        CREATE TABLE IF NOT EXISTS lojas (
+          id SERIAL PRIMARY KEY,
+          bandeira_id INTEGER NOT NULL,
+          nome VARCHAR(255) NOT NULL,
+          cidade VARCHAR(255) NOT NULL,
+          uf VARCHAR(2) NOT NULL,
+          FOREIGN KEY (bandeira_id) REFERENCES bandeiras(id)
+        )
+      `
+    }
+
+    try {
+      // Verificar se a tabela promotor_loja existe
+      await prisma.$executeRaw`SELECT 1 FROM promotor_loja LIMIT 1`
+    } catch (error) {
+      console.log("Tabela promotor_loja não existe. Criando...")
+      await prisma.$executeRaw`
+        CREATE TABLE IF NOT EXISTS promotor_loja (
+          id SERIAL PRIMARY KEY,
+          promotor_id INTEGER NOT NULL,
+          loja_id INTEGER NOT NULL,
+          FOREIGN KEY (promotor_id) REFERENCES promotores(id),
+          FOREIGN KEY (loja_id) REFERENCES lojas(id)
+        )
+      `
+    }
+
     // Criar períodos
-    await prisma.periodo.createMany({
-      data: [
-        { periodo: "Manhã (8h-12h)" },
-        { periodo: "Tarde (13h-17h)" },
-        { periodo: "Integral (8h-17h)" },
-        { periodo: "Manhã (8h-12h)" },
-        { periodo: "Tarde (13h-16h)" },
-        { periodo: "Manhã (9h-13h)" },
-      ],
-      skipDuplicates: true,
-    })
+    await prisma.$executeRaw`
+      INSERT INTO periodos (tipo_dia, inicio, fim, descricao)
+      VALUES 
+        ('segunda_sexta', '08:00', '12:00', 'Manhã (8h-12h)'),
+        ('segunda_sexta', '13:00', '17:00', 'Tarde (13h-17h)'),
+        ('segunda_sexta', '08:00', '17:00', 'Integral (8h-17h)'),
+        ('sabado', '08:00', '12:00', 'Manhã (8h-12h)'),
+        ('sabado', '13:00', '16:00', 'Tarde (13h-16h)'),
+        ('domingo', '09:00', '13:00', 'Manhã (9h-13h)')
+      ON CONFLICT DO NOTHING
+    `
 
     // Criar cliente de teste
-    const cliente = await prisma.cliente.create({
-      data: {
-        nome: "Cliente Teste",
+    const clienteExistente = await prisma.cliente.findFirst({
+      where: {
         email: "teste@exemplo.com",
-        telefone: "11999999999",
       },
     })
+
+    if (!clienteExistente) {
+      await prisma.cliente.create({
+        data: {
+          nome: "Cliente Teste",
+          email: "teste@exemplo.com",
+          telefone: "11999999999",
+        },
+      })
+    }
+
+    // Criar bandeiras
+    const bandeiras = [
+      { nome: "Supermercado A", descricao: "Rede de supermercados A" },
+      { nome: "Supermercado B", descricao: "Rede de supermercados B" },
+      { nome: "Loja C", descricao: "Rede de lojas C" },
+      { nome: "Mercado D", descricao: "Rede de mercados D" },
+    ]
+
+    for (const bandeira of bandeiras) {
+      await prisma.$executeRaw`
+        INSERT INTO bandeiras (nome, descricao)
+        VALUES (${bandeira.nome}, ${bandeira.descricao})
+        ON CONFLICT (nome) DO NOTHING
+      `
+    }
 
     // Lista de UFs e cidades para criar dados de exemplo
     const locais = [
@@ -73,42 +145,114 @@ export async function seedDatabaseIfEmpty() {
       { uf: "PR", cidades: ["Curitiba", "Londrina", "Foz do Iguaçu"] },
     ]
 
-    // Bandeiras e lojas
-    const bandeiras = ["Supermercado A", "Supermercado B", "Loja C", "Mercado D"]
+    // Buscar todas as bandeiras criadas
+    const todasBandeiras = await prisma.$queryRaw`SELECT id, nome FROM bandeiras`
+
+    // Criar lojas para cada bandeira
+    for (const bandeira of todasBandeiras) {
+      for (const local of locais) {
+        for (const cidade of local.cidades) {
+          await prisma.$executeRaw`
+            INSERT INTO lojas (bandeira_id, nome, cidade, uf)
+            VALUES (${bandeira.id}, ${`${bandeira.nome} - ${cidade}`}, ${cidade}, ${local.uf})
+            ON CONFLICT DO NOTHING
+          `
+        }
+      }
+    }
+
+    // Buscar todas as lojas criadas
+    const todasLojas = await prisma.$queryRaw`SELECT id, nome, cidade, uf FROM lojas`
 
     // Criar promotores de exemplo para cada local
     for (const local of locais) {
       for (const cidade of local.cidades) {
-        // Escolher bandeira aleatória
-        const bandeira = bandeiras[Math.floor(Math.random() * bandeiras.length)]
-
-        // Criar promotor
-        await prisma.promotor.create({
-          data: {
-            // Usar o nome do campo conforme definido nos tipos do Prisma
-            // Se o tipo espera 'nome', usamos 'nome', mesmo que no banco seja 'promotor'
+        // Verificar se o promotor já existe
+        const promotorExistente = await prisma.promotor.findFirst({
+          where: {
             nome: `Promotor ${cidade}`,
-            familia: "Geral",
-            horas_sistema: "40",
             cidade: cidade,
             uf: local.uf,
-            bandeira: bandeira,
-            loja: `Unidade ${cidade}`,
-            cargo_campo: "Promotor",
-            status: "Ativo",
-            disponibilidades: {
-              create: {
-                segunda: "8",
-                terca: "8",
-                quarta: "8",
-                quinta: "8",
-                sexta: "8",
-                sabado: "4",
-                domingo: "0",
-              },
-            },
-          } as any, // Usar 'as any' para evitar erros de tipo
+          },
         })
+
+        if (!promotorExistente) {
+          // Criar promotor
+          const promotor = await prisma.promotor.create({
+            data: {
+              nome: `Promotor ${cidade}`,
+              cpf: `${Math.floor(Math.random() * 99999999999)
+                .toString()
+                .padStart(11, "0")}`,
+              endereco: `Rua Exemplo, ${Math.floor(Math.random() * 1000)}`,
+              bairro: `Bairro ${Math.floor(Math.random() * 10) + 1}`,
+              cidade: cidade,
+              uf: local.uf,
+              cep: `${Math.floor(Math.random() * 99999999)
+                .toString()
+                .padStart(8, "0")}`,
+              familia: "Geral",
+              horasistema: "40",
+              status: "Ativo",
+              latitude: -23.5505 + (Math.random() - 0.5) * 10,
+              longitude: -46.6333 + (Math.random() - 0.5) * 10,
+            },
+          })
+
+          // Criar disponibilidade para o promotor
+          await prisma.disponibilidade.create({
+            data: {
+              promotor_id: promotor.id,
+              segunda: "8",
+              terca: "8",
+              quarta: "8",
+              quinta: "8",
+              sexta: "8",
+              sabado: "4",
+              domingo: "0",
+            },
+          })
+
+          // Associar o promotor a algumas lojas da mesma cidade
+          const lojasNaCidade = todasLojas.filter((loja: any) => loja.cidade === cidade && loja.uf === local.uf)
+
+          // Selecionar até 3 lojas aleatórias para o promotor
+          const lojasParaAssociar = lojasNaCidade
+            .sort(() => 0.5 - Math.random())
+            .slice(0, Math.min(3, lojasNaCidade.length))
+
+          for (const loja of lojasParaAssociar) {
+            await prisma.$executeRaw`
+              INSERT INTO promotor_loja (promotor_id, loja_id)
+              VALUES (${promotor.id}, ${loja.id})
+              ON CONFLICT DO NOTHING
+            `
+          }
+
+          // Criar valores para cada período
+          const periodos = await prisma.periodo.findMany()
+          for (const periodo of periodos) {
+            // Definir valor base com base no tipo de dia
+            let valorBase = 40 // Valor padrão para dias úteis
+
+            if (periodo.tipo_dia === "sabado") {
+              valorBase = 48 // Acréscimo de 20% para sábado
+            } else if (periodo.tipo_dia === "domingo") {
+              valorBase = 60 // Acréscimo de 50% para domingo
+            }
+
+            // Verificar se a tabela valores_promotor_periodo existe
+            try {
+              await prisma.$executeRaw`
+                INSERT INTO valores_promotor_periodo (promotor_id, periodo_id, valor_hora, data_inicio)
+                VALUES (${promotor.id}, ${periodo.id}, ${valorBase}, CURRENT_TIMESTAMP)
+                ON CONFLICT DO NOTHING
+              `
+            } catch (error) {
+              console.error(`Erro ao inserir valor para promotor ${promotor.id} e período ${periodo.id}:`, error)
+            }
+          }
+        }
       }
     }
 

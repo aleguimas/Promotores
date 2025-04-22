@@ -10,18 +10,44 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Bandeira {
+  id        Int     @id @default(autoincrement())
+  nome      String
+  descricao String?
+  lojas     Loja[]
+
+  @@map("bandeiras")
+}
+
+model Loja {
+  id          Int            @id @default(autoincrement())
+  bandeira_id Int
+  nome        String
+  cidade      String
+  uf          String
+  bandeira    Bandeira       @relation(fields: [bandeira_id], references: [id])
+  promotores  PromotorLoja[]
+
+  @@map("lojas")
+}
+
 model Promotor {
-  id            Int              @id @default(autoincrement())
-  nome          String           // Mantemos como 'nome' no schema, mas no banco é 'promotor'
-  familia       String?
-  horas_sistema String?
+  id            Int             @id @default(autoincrement())
+  nome          String
+  cpf           String?
+  endereco      String?
+  bairro        String?
   cidade        String?
   uf            String?
-  bandeira      String?
-  loja          String?
+  cep           String?
+  familia       String?
+  horasistema   String?
   cargo_campo   String?
-  status        String?
+  status_usuario String?
+  latitude      Float?
+  longitude     Float?
   disponibilidades Disponibilidade[]
+  lojas         PromotorLoja[]
   selecoes      SelecaoPromotor[]
 
   @@map("promotores")
@@ -42,12 +68,36 @@ model Disponibilidade {
   @@map("disponibilidades")
 }
 
+model PromotorLoja {
+  id          Int      @id @default(autoincrement())
+  promotor_id Int
+  loja_id     Int
+  promotor    Promotor @relation(fields: [promotor_id], references: [id])
+  loja        Loja     @relation(fields: [loja_id], references: [id])
+
+  @@map("promotor_loja")
+}
+
 model Periodo {
   id          Int              @id @default(autoincrement())
-  periodo     String
+  tipo_dia    String
+  inicio      String
+  fim         String
+  descricao   String
   selecoes    SelecaoPromotor[]
 
   @@map("periodos")
+}
+
+model ValorPromotorPeriodo {
+  id          Int       @id @default(autoincrement())
+  promotor_id Int
+  periodo_id  Int
+  valor_hora  Float
+  data_inicio DateTime  @default(now())
+  data_fim    DateTime?
+
+  @@map("valores_promotor_periodo")
 }
 
 model Cliente {
