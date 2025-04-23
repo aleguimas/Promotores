@@ -28,6 +28,20 @@ export async function checkDatabaseConnection() {
   }
 }
 
+// Adicionar esta interface antes da função seedDatabaseIfEmpty
+interface BandeiraRaw {
+  id: number
+  nome: string
+}
+
+// Adicionar esta interface antes da função seedDatabaseIfEmpty
+interface LojaRaw {
+  id: number
+  nome: string
+  cidade: string
+  uf: string
+}
+
 export async function seedDatabaseIfEmpty() {
   try {
     console.log("Verificando banco de dados...")
@@ -146,7 +160,7 @@ export async function seedDatabaseIfEmpty() {
     ]
 
     // Buscar todas as bandeiras criadas
-    const todasBandeiras = await prisma.$queryRaw`SELECT id, nome FROM bandeiras`
+    const todasBandeiras = await prisma.$queryRaw<BandeiraRaw[]>`SELECT id, nome FROM bandeiras`
 
     // Criar lojas para cada bandeira
     for (const bandeira of todasBandeiras) {
@@ -162,7 +176,7 @@ export async function seedDatabaseIfEmpty() {
     }
 
     // Buscar todas as lojas criadas
-    const todasLojas = await prisma.$queryRaw`SELECT id, nome, cidade, uf FROM lojas`
+    const todasLojas = await prisma.$queryRaw<LojaRaw[]>`SELECT id, nome, cidade, uf FROM lojas`
 
     // Criar promotores de exemplo para cada local
     for (const local of locais) {
@@ -193,7 +207,7 @@ export async function seedDatabaseIfEmpty() {
                 .padStart(8, "0")}`,
               familia: "Geral",
               horasistema: "40",
-              status: "Ativo",
+              status_usuario: "Ativo",
               latitude: -23.5505 + (Math.random() - 0.5) * 10,
               longitude: -46.6333 + (Math.random() - 0.5) * 10,
             },
@@ -283,6 +297,65 @@ export async function testDatabaseConnection() {
       success: false,
       message: "Falha na conexão com o banco de dados",
       error: error.message,
+    }
+  }
+}
+
+// Adicione uma função para depurar o banco de dados
+export async function debugDatabase() {
+  try {
+    console.log("Iniciando debug do banco de dados...")
+
+    // Verificar total de promotores
+    const totalPromotores = await prisma.promotor.count()
+    console.log(`Total de promotores: ${totalPromotores}`)
+
+    // Verificar UFs disponíveis
+    const ufs = await prisma.$queryRaw`SELECT DISTINCT uf FROM promotores WHERE uf IS NOT NULL`
+    console.log(`UFs disponíveis: ${JSON.stringify(ufs)}`)
+
+    // Verificar algumas cidades por UF
+    for (const ufObj of ufs as any[]) {
+      const uf = ufObj.uf
+      const cidades = await prisma.$queryRaw`
+        SELECT DISTINCT cidade FROM promotores 
+        WHERE uf = ${uf} AND cidade IS NOT NULL 
+        LIMIT 5
+      `
+      console.log(`Cidades em ${uf}: ${JSON.stringify(cidades)}`)
+    }
+
+    // Verificar bandeiras
+    const bandeiras = await prisma.bandeira.findMany({
+      select: { id: true, nome: true },
+      take: 10,
+    })
+    console.log(`Bandeiras: ${JSON.stringify(bandeiras)}`)
+
+    // Verificar lojas
+    const lojas = await prisma.loja.findMany({
+      select: { id: true, nome: true, bandeira_id: true, cidade: true, uf: true },
+      take: 10,
+    })
+    console.log(`Lojas: ${JSON.stringify(lojas)}`)
+
+    // Verificar relações promotor-loja
+    const promotorLojas = await prisma.promotorLoja.count()
+    console.log(`Total de relações promotor-loja: ${promotorLojas}`)
+
+    return {
+      success: true,
+      totalPromotores,
+      ufs: ufs,
+      bandeiras,
+      lojas: lojas.length,
+      promotorLojas,
+    }
+  } catch (error) {
+    console.error("Erro ao depurar banco de dados:", error)
+    return {
+      success: false,
+      error: String(error),
     }
   }
 }

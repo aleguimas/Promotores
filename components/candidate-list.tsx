@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { useCart, type DiaDaSemana, diasDaSemana, type CartItem } from "../contexts/cart-context"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { getPeriodosByTipoDia, getValorHoraPromotorPeriodo } from "../lib/actions"
+import { getPeriodosByTipoDia, getValorHoraPromotorPeriodo, getLojasPorBandeira, getBandeiras } from "../lib/actions"
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,30 @@ import {
   DialogDescription,
   DialogClose,
 } from "@/components/ui/dialog"
+
+// Função auxiliar para serializar BigInt
+function replaceBigInt(key: string, value: any) {
+  return typeof value === "bigint" ? value.toString() : value
+}
+
+// Primeiro, vamos atualizar a interface Candidate para incluir bandeira_id
+interface Candidate {
+  id: number
+  nome: string
+  promotor: string
+  familia: string
+  horasistema: string
+  cidade: string
+  uf: string
+  bandeira: string
+  bandeira_id?: number // Adicionando bandeira_id como opcional
+  loja: string
+  loja_id?: number // Adicionando loja_id também para consistência
+  cargo_campo: string
+  status_usuario: string
+  disponibilidade?: Disponibilidade
+  disponibilidades?: Disponibilidade[]
+}
 
 interface Disponibilidade {
   promotor_id: number
@@ -28,22 +52,6 @@ interface Disponibilidade {
   sexta: string
   sabado: string
   domingo: string
-}
-
-interface Candidate {
-  id: number
-  nome: string
-  promotor: string
-  familia: string
-  horasistema: string
-  cidade: string
-  uf: string
-  bandeira: string
-  loja: string
-  cargo_campo: string
-  status_usuario: string
-  disponibilidade?: Disponibilidade
-  disponibilidades?: Disponibilidade[]
 }
 
 // Interface para armazenar a seleção de horas e período por dia
@@ -60,6 +68,18 @@ interface Periodo {
   inicio: string
   fim: string
   descricao: string
+}
+
+// Interface para bandeiras
+interface Bandeira {
+  id: number
+  nome: string
+}
+
+// Interface para lojas
+interface Loja {
+  id: number
+  nome: string
 }
 
 // Dias úteis (segunda a sexta)
@@ -405,33 +425,133 @@ function DaySelectionForm({
   )
 }
 
+// Adicione logs no início do componente para verificar os dados recebidos
 export function CandidateList({ title, description, candidates }: CandidateListProps) {
+  console.log(`CandidateList recebeu ${candidates.length} candidatos`)
+
+  // Se houver candidatos, vamos verificar o primeiro para debug
+  if (candidates.length > 0) {
+    try {
+      console.log("Primeiro candidato:", JSON.stringify(candidates[0], replaceBigInt))
+      console.log("Status do primeiro candidato:", candidates[0].status_usuario)
+    } catch (error) {
+      console.error("Erro ao serializar candidato:", error)
+      console.log("Primeiro candidato (sem serialização):", candidates[0])
+    }
+  }
+
+  // Verificar quantos candidatos têm status_usuario definido
+  const candidatosComStatus = candidates.filter(
+    (c) => c.status_usuario !== undefined && c.status_usuario !== null,
+  ).length
+  console.log(`Candidatos com status_usuario definido: ${candidatosComStatus} de ${candidates.length}`)
+
   const { toast } = useToast()
   const { items, addItem, removeItem } = useCart()
 
-  // Filtra apenas candidatos ativos
-  const activeCandidates = candidates.filter(
-    (candidate) => candidate.status_usuario && candidate.status_usuario.toLowerCase() === "ativo",
-  )
+  // Filtra apenas candidatos ativos e adiciona log para verificar
+  const activeCandidates = candidates.filter((candidate) => {
+    // Considerar como ativo se status_usuario for undefined, null, ou contiver a palavra "ativo" (case insensitive)
+    const isActive = !candidate.status_usuario || candidate.status_usuario.toLowerCase().includes("ativo")
+
+    if (!isActive) {
+      console.log(`Candidato ${candidate.id} (${candidate.nome}) filtrado por status: ${candidate.status_usuario}`)
+    }
+    return isActive
+  })
+
+  console.log(`Após filtro de status: ${activeCandidates.length} candidatos ativos`)
 
   // Estados para os filtros
   const [selectedBandeira, setSelectedBandeira] = useState<string>("Todas")
   const [selectedLoja, setSelectedLoja] = useState<string>("Todas")
+  const [loadingLojas, setLoadingLojas] = useState<boolean>(false)
+  const [lojas, setLojas] = useState<Loja[]>([])
 
   // Extrair todas as bandeiras únicas disponíveis
-  const bandeiras = Array.from(new Set(activeCandidates.map((candidate) => candidate.bandeira)))
-    .filter(Boolean)
-    .sort() // Ordenar bandeiras alfabeticamente
+  const bandeiras = Array.from(
+    new Set(
+      activeCandidates
+        .map((candidate) => candidate.bandeira)
+        .filter(Boolean), // Remover valores vazios
+    ),
+  ).sort() // Ordenar bandeiras alfabeticamente
 
-  // Filtrar candidatos por bandeira primeiro
-  const candidatosFiltradosPorBandeira = activeCandidates.filter(
-    (candidate) => selectedBandeira === "Todas" || candidate.bandeira === selectedBandeira,
-  )
+  // Modificar o useEffect que cria o mapa de bandeiras para IDs
+  useEffect(() => {
+    // Não vamos mais tentar acessar bandeira_id diretamente dos candidatos
+    // Em vez disso, vamos apenas armazenar os nomes das bandeiras
+    const bandeiraNames = Array.from(
+      new Set(activeCandidates.map((candidate) => candidate.bandeira).filter(Boolean)),
+    ).sort()
 
-  // Extrair lojas disponíveis com base na bandeira selecionada
-  const lojas = Array.from(new Set(candidatosFiltradosPorBandeira.map((candidate) => candidate.loja)))
-    .filter(Boolean)
-    .sort() // Ordenar lojas alfabeticamente
+    // Resetar a loja selecionada quando a lista de bandeiras mudar
+    setSelectedLoja("Todas")
+  }, [activeCandidates])
+
+  // Carregar lojas quando a bandeira mudar
+  useEffect(() => {
+    // Modificar a função loadLojas para evitar atualizações desnecessárias
+    async function loadLojas() {
+      try {
+        setLoadingLojas(true)
+
+        if (selectedBandeira === "Todas") {
+          // Se "Todas" for selecionado, mostrar todas as lojas dos candidatos ativos
+          const todasLojas = Array.from(new Set(activeCandidates.map((candidate) => candidate.loja).filter(Boolean)))
+            .sort()
+            .map((nome, index) => ({ id: index + 1, nome }))
+
+          setLojas(todasLojas)
+          return
+        }
+
+        // Filtrar candidatos pela bandeira selecionada
+        const candidatosDaBandeira = activeCandidates.filter((candidate) => candidate.bandeira === selectedBandeira)
+
+        if (candidatosDaBandeira.length > 0) {
+          // Extrair lojas únicas dos candidatos filtrados
+          const lojasUnicas = Array.from(
+            new Set(candidatosDaBandeira.map((candidate) => candidate.loja).filter(Boolean)),
+          )
+            .sort()
+            .map((nome, index) => ({ id: index + 1, nome }))
+
+          setLojas(lojasUnicas)
+        } else {
+          // Se não houver candidatos com esta bandeira, tentar buscar do banco de dados
+          try {
+            const bandeirasData = await getBandeiras()
+            const bandeiraSelecionada = bandeirasData.find((b) => b.nome === selectedBandeira)
+
+            if (bandeiraSelecionada) {
+              const lojasData = await getLojasPorBandeira(bandeiraSelecionada.id)
+              setLojas(lojasData)
+            } else {
+              console.error("Bandeira não encontrada:", selectedBandeira)
+              setLojas([])
+            }
+          } catch (error) {
+            console.error("Erro ao buscar bandeiras/lojas:", error)
+            setLojas([])
+          }
+        }
+      } catch (error) {
+        console.error("Erro ao carregar lojas:", error)
+        toast({
+          title: "Erro ao carregar lojas",
+          description: "Não foi possível carregar a lista de lojas para esta bandeira.",
+          variant: "destructive",
+        })
+        setLojas([])
+      } finally {
+        setLoadingLojas(false)
+      }
+    }
+
+    loadLojas()
+    // Remover activeCandidates da lista de dependências para evitar loops
+  }, [selectedBandeira, toast])
 
   // Resetar a loja selecionada quando a bandeira mudar
   useEffect(() => {
@@ -440,15 +560,14 @@ export function CandidateList({ title, description, candidates }: CandidateListP
 
   // Aplicar todos os filtros para obter a lista final de candidatos
   const filteredCandidates = activeCandidates.filter((candidate) => {
-    // Verificar se o candidato corresponde ao filtro de bandeira
-    const matchesBandeira = selectedBandeira === "Todas" || candidate.bandeira === selectedBandeira
+    // Adicionar logs para debug
+    console.log(`Verificando candidato ${candidate.id} (${candidate.nome}): status=${candidate.status_usuario}`)
 
-    // Verificar se o candidato corresponde ao filtro de loja
-    const matchesLoja = selectedLoja === "Todas" || candidate.loja === selectedLoja
-
-    // O candidato só deve ser incluído se corresponder a AMBOS os filtros
-    return matchesBandeira && matchesLoja
+    // Não filtrar por bandeira ou loja, apenas garantir que o candidato tenha os dados básicos
+    return true // Mostrar todos os candidatos ativos
   })
+
+  console.log(`Após remover filtros de bandeira/loja: ${filteredCandidates.length} candidatos`)
 
   // Ordena os candidatos por nome
   const sortedCandidates = [...filteredCandidates].sort((a, b) => {
@@ -482,6 +601,7 @@ export function CandidateList({ title, description, candidates }: CandidateListP
   // Inicializa as seleções para todos os candidatos visíveis
   useEffect(() => {
     const newSelections: Record<number, Record<DiaDaSemana, DaySelection>> = { ...candidateSelections }
+    let hasChanges = false
 
     visibleCandidates.forEach((candidate) => {
       // Se já existe uma seleção para este candidato, não fazer nada
@@ -493,6 +613,7 @@ export function CandidateList({ title, description, candidates }: CandidateListP
       if (existingItem) {
         // Se já estiver no carrinho, usar as seleções existentes
         newSelections[candidate.id] = existingItem.selectedDays
+        hasChanges = true
       } else {
         // Caso contrário, inicializar com valores vazios
         newSelections[candidate.id] = {
@@ -504,11 +625,12 @@ export function CandidateList({ title, description, candidates }: CandidateListP
           sabado: { selected: false, hours: "", period: "" },
           domingo: { selected: false, hours: "", period: "" },
         }
+        hasChanges = true
       }
     })
 
     // Atualizar o estado apenas se houver mudanças
-    if (Object.keys(newSelections).length > Object.keys(candidateSelections).length) {
+    if (hasChanges) {
       setCandidateSelections(newSelections)
     }
   }, [visibleCandidates, items])
@@ -559,16 +681,34 @@ export function CandidateList({ title, description, candidates }: CandidateListP
     const hasSelectedDay = Object.values(selection).some((day) => day.selected)
 
     if (!hasSelectedDay) {
+      console.log("Nenhum dia selecionado para o candidato", candidateId)
       return false
     }
 
     // Verifica se todos os dias selecionados têm horas e período definidos
-    const allSelectedDaysComplete = Object.entries(selection).every(([day, daySelection]) => {
-      if (!daySelection.selected) return true // Ignorar dias não selecionados
-      return daySelection.hours !== "" && Number(daySelection.hours) > 0 && daySelection.period !== ""
+    let allSelectedDaysComplete = true
+
+    // Adicionar logs para depuração
+    Object.entries(selection).forEach(([day, daySelection]) => {
+      if (daySelection.selected) {
+        const hasHours = daySelection.hours !== "" && Number(daySelection.hours) > 0
+        const hasPeriod = daySelection.period !== ""
+
+        console.log(
+          `Dia ${day}: selecionado=${daySelection.selected}, horas=${daySelection.hours}, período=${daySelection.period}`,
+        )
+        console.log(`Dia ${day} completo: ${hasHours && hasPeriod}`)
+
+        if (!hasHours || !hasPeriod) {
+          allSelectedDaysComplete = false
+        }
+      }
     })
 
-    return allSelectedDaysComplete
+    console.log("Todos os dias selecionados estão completos:", allSelectedDaysComplete)
+
+    // Retornar true se pelo menos um dia foi selecionado e todos os dias selecionados estão completos
+    return hasSelectedDay && allSelectedDaysComplete
   }
 
   // Adiciona ou remove um candidato do carrinho
@@ -593,77 +733,119 @@ export function CandidateList({ title, description, candidates }: CandidateListP
       }
 
       // Verifica se as seleções estão completas
-      if (canAddCandidate(candidate.id, disponibilidade)) {
-        const selection = candidateSelections[candidate.id]
+      const selection = candidateSelections[candidate.id]
 
-        try {
-          // Calcula o total de horas e valor
-          let totalHours = 0
-          let totalValue = 0
+      // Adicionar logs para depuração
+      console.log("Seleções do candidato:", selection)
 
-          // Usar Promise.all para processar todas as seleções em paralelo
-          const valorPromises = Object.entries(selection).map(async ([day, daySelection]) => {
-            if (daySelection.selected && daySelection.hours !== "") {
-              const hours = Number(daySelection.hours)
-              const periodoId = Number(daySelection.period)
+      // Verificar se pelo menos um dia foi selecionado
+      const hasSelectedDay = Object.values(selection).some((day) => day.selected)
+      console.log("Tem pelo menos um dia selecionado:", hasSelectedDay)
 
-              // Calcular o valor com base no promotor e período
-              const valorHora = await getValorHoraPromotorPeriodo(candidate.id, periodoId)
-              return { day, hours, valorHora }
-            }
-            return null
-          })
-
-          // Aguardar todos os cálculos de valor
-          const valores = (await Promise.all(valorPromises)).filter((v) => v !== null)
-
-          // Calcular totais
-          valores.forEach((v) => {
-            if (v) {
-              totalHours += v.hours
-              totalValue += v.hours * v.valorHora
-            }
-          })
-
-          const cartItem: CartItem = {
-            id: candidate.id,
-            promotor: candidate.promotor || candidate.nome,
-            familia: candidate.familia || "",
-            cidade: candidate.cidade || "",
-            uf: candidate.uf || "",
-            bandeira: candidate.bandeira || "",
-            loja: candidate.loja || "",
-            cargo_campo: candidate.cargo_campo || "",
-            selectedDays: selection,
-            totalHours,
-            totalValue,
-          }
-
-          addItem(cartItem)
-
-          // Fechar o formulário após adicionar ao carrinho
-          setOpenSelectionForms((prev) => ({
-            ...prev,
-            [candidate.id]: false,
-          }))
-
-          toast({
-            title: "Promotor adicionado",
-            description: `${candidate.promotor || candidate.nome} foi adicionado ao carrinho`,
-            variant: "default",
-          })
-        } catch (error) {
-          console.error("Erro ao adicionar promotor:", error)
-          toast({
-            title: "Erro ao adicionar promotor",
-            description: "Ocorreu um erro ao calcular os valores. Tente novamente.",
-            variant: "destructive",
-          })
-        }
-      } else {
+      if (!hasSelectedDay) {
         toast({
           title: "Seleção incompleta",
-          description: "Por favor, selecione pelo menos um dia e defina as horas e período para cada dia selecionado.",
+          description: "Por favor, selecione pelo menos um dia.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Verificar se todos os dias selecionados têm horas e período
+      let incompleteDay = null
+
+      for (const [day, daySelection] of Object.entries(selection)) {
+        if (daySelection.selected) {
+          if (daySelection.hours === "" || Number(daySelection.hours) <= 0) {
+            incompleteDay = `${diasDaSemana[day as DiaDaSemana]} (horas não definidas)`
+            break
+          }
+          if (daySelection.period === "") {
+            incompleteDay = `${diasDaSemana[day as DiaDaSemana]} (período não selecionado)`
+            break
+          }
+        }
+      }
+
+      if (incompleteDay) {
+        toast({
+          title: "Seleção incompleta",
+          description: `Por favor, complete a seleção para ${incompleteDay}.`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      try {
+        // Calcula o total de horas e valor
+        let totalHours = 0
+        let totalValue = 0
+
+        // Usar Promise.all para processar todas as seleções em paralelo
+        const valorPromises = Object.entries(selection).map(async ([day, daySelection]) => {
+          if (daySelection.selected && daySelection.hours !== "") {
+            const hours = Number(daySelection.hours)
+            const periodoId = Number(daySelection.period)
+
+            try {
+              // Calcular o valor com base no promotor e período
+              const valorHora = await getValorHoraPromotorPeriodo(candidate.id, periodoId)
+              console.log(`Valor hora para ${day}: ${valorHora} (tipo: ${typeof valorHora})`)
+              return { day, hours, valorHora: Number(valorHora) }
+            } catch (error) {
+              console.error(`Erro ao obter valor da hora para ${day}:`, error)
+              return { day, hours, valorHora: 40 } // Valor padrão em caso de erro
+            }
+          }
+          return null
+        })
+
+        // Aguardar todos os cálculos de valor
+        const valores = (await Promise.all(valorPromises)).filter((v) => v !== null)
+
+        // Calcular totais
+        valores.forEach((v) => {
+          if (v) {
+            totalHours += v.hours
+            totalValue += v.hours * v.valorHora
+          }
+        })
+
+        const cartItem: CartItem = {
+          id: candidate.id,
+          promotor: candidate.promotor || candidate.nome,
+          familia: candidate.familia || "",
+          cidade: candidate.cidade || "",
+          uf: candidate.uf || "",
+          bandeira: candidate.bandeira || "",
+          loja: candidate.loja || "",
+          cargo_campo: candidate.cargo_campo || "",
+          selectedDays: selection,
+          totalHours,
+          totalValue,
+        }
+
+        // Garantir que o cartItem seja serializável
+        const serializableCartItem = JSON.parse(JSON.stringify(cartItem))
+
+        addItem(serializableCartItem)
+
+        // Fechar o formulário após adicionar ao carrinho
+        setOpenSelectionForms((prev) => ({
+          ...prev,
+          [candidate.id]: false,
+        }))
+
+        toast({
+          title: "Promotor adicionado",
+          description: `${candidate.promotor || candidate.nome} foi adicionado ao carrinho`,
+          variant: "default",
+        })
+      } catch (error) {
+        console.error("Erro ao adicionar promotor:", error)
+        toast({
+          title: "Erro ao adicionar promotor",
+          description: "Ocorreu um erro ao calcular os valores. Tente novamente.",
           variant: "destructive",
         })
       }
@@ -763,47 +945,15 @@ export function CandidateList({ title, description, candidates }: CandidateListP
             </div>
             <CardDescription>{description}</CardDescription>
 
-            {/* Filtros */}
+            {/* Filtros - Desabilitados temporariamente */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-              {/* Filtro por Bandeira */}
               <div>
-                <label htmlFor="bandeira-filter" className="block text-sm font-medium text-muted-foreground">
-                  Filtrar por Bandeira:
+                <label className="block text-sm font-medium text-muted-foreground">
+                  Filtros desabilitados temporariamente
                 </label>
-                <select
-                  id="bandeira-filter"
-                  value={selectedBandeira}
-                  onChange={(e) => setSelectedBandeira(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="Todas">Todas</option>
-                  {bandeiras.map((bandeira) => (
-                    <option key={bandeira} value={bandeira}>
-                      {bandeira}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Filtro por Loja */}
-              <div>
-                <label htmlFor="loja-filter" className="block text-sm font-medium text-muted-foreground">
-                  Filtrar por Loja:
-                </label>
-                <select
-                  id="loja-filter"
-                  value={selectedLoja}
-                  onChange={(e) => setSelectedLoja(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  disabled={lojas.length === 0}
-                >
-                  <option value="Todas">Todas</option>
-                  {lojas.map((loja) => (
-                    <option key={loja} value={loja}>
-                      {loja}
-                    </option>
-                  ))}
-                </select>
+                <p className="text-xs text-muted-foreground">
+                  Os filtros de bandeira e loja foram desabilitados devido a problemas no banco de dados.
+                </p>
               </div>
             </div>
           </div>

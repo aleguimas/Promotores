@@ -19,6 +19,11 @@ interface Cidade {
   nome: string
 }
 
+// Função auxiliar para serializar BigInt
+function replaceBigInt(key: string, value: any) {
+  return typeof value === "bigint" ? value.toString() : value
+}
+
 export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: LocationSearchFormProps) {
   const [selectedUF, setSelectedUF] = useState("")
   const [selectedCidade, setSelectedCidade] = useState("")
@@ -80,6 +85,7 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
     }
   }
 
+  // Modifique a função handleSubmit para garantir que os resultados sejam serializáveis
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -92,6 +98,8 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
       setLoading(true)
       setError(null)
 
+      console.log(`Iniciando busca de promotores em ${selectedCidade}/${selectedUF}`)
+
       const results = await searchCandidatesByLocation({
         uf: selectedUF,
         cidade: selectedCidade,
@@ -99,18 +107,27 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
         loja: "Todas",
       })
 
+      console.log(`Busca concluída: ${results.length} promotores encontrados`)
+
+      // Verificar se os resultados têm a estrutura esperada
+      if (results.length > 0) {
+        // Use a função replaceBigInt para serializar BigInt
+        console.log("Exemplo do primeiro resultado:", JSON.stringify(results[0], replaceBigInt))
+      }
+
       setLocationInfo({
         uf: selectedUF,
         cidade: selectedCidade,
       })
 
+      // Garantir que os resultados sejam passados para o componente pai
       onResults(results)
 
       if (results.length === 0) {
-        setError("Não encontramos promotores disponíveis com os filtros selecionados")
+        setError(`Não encontramos promotores disponíveis em ${selectedCidade}/${selectedUF}`)
       }
     } catch (error: any) {
-      console.error("Search error:", error)
+      console.error("Erro na busca:", error)
       setError(error.message || "Não foi possível encontrar promotores com os filtros selecionados")
     } finally {
       setLoading(false)

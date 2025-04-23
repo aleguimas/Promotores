@@ -13,7 +13,7 @@ interface PeriodoResult {
 }
 
 interface ValorHoraResult {
-  valor_hora: number
+  valor_hora: number | string | any // Modificado para aceitar diferentes tipos
 }
 
 // Define interfaces for our data models
@@ -130,10 +130,15 @@ export async function registrarPedido(clienteId: number, formaPagamento: string,
   }
 }
 
-// Função auxiliar para converter Decimal para Number
+// Modifique apenas a função convertDecimalToNumber para lidar com BigInt
 function convertDecimalToNumber(value: any): any {
   if (value === null || value === undefined) {
     return value
+  }
+
+  // Se for um BigInt, converter para string
+  if (typeof value === "bigint") {
+    return value.toString()
   }
 
   // Se for um objeto Decimal (tem método toNumber)
@@ -160,6 +165,7 @@ function convertDecimalToNumber(value: any): any {
   return value
 }
 
+// Modifique a função searchCandidatesByLocation para garantir que os dados estejam sendo processados corretamente
 export async function searchCandidatesByLocation({
   uf,
   cidade,
@@ -169,26 +175,72 @@ export async function searchCandidatesByLocation({
   try {
     console.log(`Buscando promotores em ${cidade}/${uf}`)
 
-    // Usar SQL direto para evitar problemas de tipo com o Prisma
+    // Normalizar a cidade para a busca (converter para maiúsculas e remover acentos)
+    const cidadeNormalizada = normalizarTexto(cidade)
+    console.log(`Cidade normalizada: ${cidadeNormalizada}`)
+
+    // Primeiro, vamos buscar todos os promotores da UF, sem filtrar por cidade ainda
     const promotoresRaw = await prisma.$queryRaw`
       SELECT 
         p.id, p.nome, p.cpf, p.endereco, p.bairro, p.cidade, p.uf, p.cep, 
-        p.familia, p.horasistema, p.cargo_campo, p.status, 
+        p.familia, p.horasistema, p.cargo_campo, p.status_usuario, 
         p.latitude::float as latitude, p.longitude::float as longitude
       FROM 
         promotores p
       WHERE 
-        p.cidade = ${cidade} AND p.uf = ${uf}
+        p.uf = ${uf}
     `
 
-    // Se não há promotores, retornar array vazio
-    if (!promotoresRaw || (promotoresRaw as any[]).length === 0) {
-      console.log("Nenhum promotor encontrado")
-      return []
+    // Log para debug
+    console.log(`Encontrados ${(promotoresRaw as any[]).length} promotores na UF ${uf}`)
+
+    // Verificar se há promotores com status_usuario nulo
+    const promotoresSemStatus = (promotoresRaw as any[]).filter((p) => p.status_usuario === null)
+    console.log(`Promotores sem status: ${promotoresSemStatus.length}`)
+
+    // Agora vamos filtrar por cidade manualmente para ter mais controle
+    let promotores = (promotoresRaw as any[]).filter((p) => {
+      if (!p.cidade) return false
+
+      // Normalizar a cidade do promotor para comparação
+      const cidadePromotorNormalizada = normalizarTexto(p.cidade)
+
+      // Verificar se as cidades correspondem (ignorando case e acentos)
+      return cidadePromotorNormalizada === cidadeNormalizada
+    })
+
+    console.log(`Após filtro de cidade: ${promotores.length} promotores em ${cidade}/${uf}`)
+
+    // Se não encontrou nenhum promotor, vamos tentar uma busca mais flexível
+    if (promotores.length === 0) {
+      console.log("Tentando busca flexível por cidade")
+      promotores = (promotoresRaw as any[]).filter((p) => {
+        if (!p.cidade) return false
+
+        // Normalizar a cidade do promotor para comparação
+        const cidadePromotorNormalizada = normalizarTexto(p.cidade)
+
+        // Verificar se uma cidade contém a outra (busca mais flexível)
+        return (
+          cidadePromotorNormalizada.includes(cidadeNormalizada) || cidadeNormalizada.includes(cidadePromotorNormalizada)
+        )
+      })
+
+      console.log(`Busca flexível encontrou: ${promotores.length} promotores`)
     }
 
-    const promotores = promotoresRaw as any[]
-    console.log(`Encontrados ${promotores.length} promotores`)
+    // Se ainda não encontrou nenhum promotor, vamos usar a cidade original sem normalização
+    if (promotores.length === 0) {
+      console.log("Tentando busca direta sem normalização")
+      promotores = (promotoresRaw as any[]).filter((p) => p.cidade === cidade)
+      console.log(`Busca direta encontrou: ${promotores.length} promotores`)
+    }
+
+    // Se ainda não encontrou nenhum promotor, retornar array vazio
+    if (promotores.length === 0) {
+      console.log("Nenhum promotor encontrado para esta cidade/UF")
+      return []
+    }
 
     // Buscar disponibilidades separadamente
     const disponibilidades = await Promise.all(
@@ -217,6 +269,10 @@ export async function searchCandidatesByLocation({
       }),
     )
 
+    // Verificar se todas as disponibilidades foram encontradas
+    const promotoresSemDisponibilidade = disponibilidades.filter((d) => d.length === 0).length
+    console.log(`Promotores sem disponibilidade: ${promotoresSemDisponibilidade}`)
+
     // Associar disponibilidades aos promotores
     promotores.forEach((promotor, index) => {
       promotor.disponibilidades = disponibilidades[index]
@@ -225,70 +281,146 @@ export async function searchCandidatesByLocation({
     // Criar uma lista de IDs de promotores para usar na consulta SQL
     const promotorIds = promotores.map((p) => p.id)
 
-    // Buscar todas as relações promotor-loja usando IN ao invés de join
-    const promotorLojas = await prisma.$queryRaw<
-      Array<{ promotor_id: number; loja_id: number; loja_nome: string; bandeira_nome: string }>
-    >`
-      SELECT pl.promotor_id, pl.loja_id, l.nome as loja_nome, b.nome as bandeira_nome
-      FROM promotor_loja pl
-      JOIN lojas l ON pl.loja_id = l.id
-      JOIN bandeiras b ON l.bandeira_id = b.id
-      WHERE pl.promotor_id IN (${Prisma.join(promotorIds)})
-    `
+    // Buscar todas as relações promotor-loja
+    let promotorLojas: any[] = []
+
+    if (promotorIds.length > 0) {
+      promotorLojas = await prisma.$queryRaw`
+        SELECT pl.promotor_id, pl.loja_id, l.nome as loja_nome, b.nome as bandeira_nome, b.id as bandeira_id
+        FROM promotor_loja pl
+        JOIN lojas l ON pl.loja_id = l.id
+        JOIN bandeiras b ON l.bandeira_id = b.id
+        WHERE pl.promotor_id IN (${Prisma.join(promotorIds)})
+      `
+    }
+
+    console.log(`Encontradas ${promotorLojas.length} relações promotor-loja`)
 
     // Criar um mapa de promotor_id para suas lojas e bandeiras
-    const promotorLojasMap = new Map<number, Array<{ loja_nome: string; bandeira_nome: string }>>()
+    const promotorLojasMap = new Map<
+      number,
+      Array<{ loja_id: number; loja_nome: string; bandeira_id: number; bandeira_nome: string }>
+    >()
 
     promotorLojas.forEach((pl) => {
       if (!promotorLojasMap.has(pl.promotor_id)) {
         promotorLojasMap.set(pl.promotor_id, [])
       }
       promotorLojasMap.get(pl.promotor_id)?.push({
+        loja_id: pl.loja_id,
         loja_nome: pl.loja_nome,
+        bandeira_id: pl.bandeira_id,
         bandeira_nome: pl.bandeira_nome,
       })
     })
 
-    // Filtrar por bandeira e loja se necessário
-    let filteredPromotores = [...promotores]
-
-    if (bandeira !== "Todas") {
-      filteredPromotores = filteredPromotores.filter((promotor) => {
-        const lojas = promotorLojasMap.get(promotor.id) || []
-        return lojas.some((l) => l.bandeira_nome === bandeira)
-      })
-    }
-
-    if (loja !== "Todas") {
-      filteredPromotores = filteredPromotores.filter((promotor) => {
-        const lojas = promotorLojasMap.get(promotor.id) || []
-        return lojas.some((l) => l.loja_nome === loja)
-      })
-    }
+    // Verificar promotores sem lojas associadas
+    const promotoresSemLojas = promotores.filter((p) => !promotorLojasMap.has(p.id)).length
+    console.log(`Promotores sem lojas associadas: ${promotoresSemLojas}`)
 
     // Mapear para o formato esperado pelo frontend
-    const result = filteredPromotores.map((promotor) => {
-      // Pegar a primeira loja associada ao promotor (ou valores padrão se não houver)
+    let result = promotores.map((promotor) => {
+      // Pegar todas as lojas associadas ao promotor
       const promotorLojas = promotorLojasMap.get(promotor.id) || []
-      const firstLoja = promotorLojas[0] || { loja_nome: "", bandeira_nome: "" }
+
+      // Se não houver lojas associadas, usar valores padrão
+      if (promotorLojas.length === 0) {
+        return {
+          ...promotor,
+          promotor: promotor.nome,
+          bandeira: "",
+          loja: "",
+          bandeira_id: null,
+          loja_id: null,
+        }
+      }
+
+      // Se houver filtro de bandeira e loja, tentar encontrar a combinação específica
+      if (bandeira !== "Todas" && loja !== "Todas") {
+        const matchingLoja = promotorLojas.find((l) => l.bandeira_nome === bandeira && l.loja_nome === loja)
+
+        if (matchingLoja) {
+          return {
+            ...promotor,
+            promotor: promotor.nome,
+            bandeira: matchingLoja.bandeira_nome,
+            loja: matchingLoja.loja_nome,
+            bandeira_id: matchingLoja.bandeira_id,
+            loja_id: matchingLoja.loja_id,
+          }
+        }
+      }
+
+      // Se houver apenas filtro de bandeira, tentar encontrar uma loja dessa bandeira
+      if (bandeira !== "Todas") {
+        const matchingLoja = promotorLojas.find((l) => l.bandeira_nome === bandeira)
+
+        if (matchingLoja) {
+          return {
+            ...promotor,
+            promotor: promotor.nome,
+            bandeira: matchingLoja.bandeira_nome,
+            loja: matchingLoja.loja_nome,
+            bandeira_id: matchingLoja.bandeira_id,
+            loja_id: matchingLoja.loja_id,
+          }
+        }
+      }
+
+      // Se houver apenas filtro de loja, tentar encontrar essa loja específica
+      if (loja !== "Todas") {
+        const matchingLoja = promotorLojas.find((l) => l.loja_nome === loja)
+
+        if (matchingLoja) {
+          return {
+            ...promotor,
+            promotor: promotor.nome,
+            bandeira: matchingLoja.bandeira_nome,
+            loja: matchingLoja.loja_nome,
+            bandeira_id: matchingLoja.bandeira_id,
+            loja_id: matchingLoja.loja_id,
+          }
+        }
+      }
+
+      // Caso contrário, usar a primeira loja associada
+      const firstLoja = promotorLojas[0]
 
       return {
         ...promotor,
         promotor: promotor.nome,
-        status_usuario: promotor.status,
         bandeira: firstLoja.bandeira_nome,
         loja: firstLoja.loja_nome,
+        bandeira_id: firstLoja.bandeira_id,
+        loja_id: firstLoja.loja_id,
       }
     })
 
+    // Aplicar filtros de bandeira e loja
+    if (bandeira !== "Todas") {
+      result = result.filter((p) => p.bandeira === bandeira)
+    }
+
+    if (loja !== "Todas") {
+      result = result.filter((p) => p.loja === loja)
+    }
+
+    console.log(`Retornando ${result.length} promotores após todos os filtros`)
+
     // Converter quaisquer objetos Decimal para números simples
-    return convertDecimalToNumber(result)
+    const processedResult = convertDecimalToNumber(result)
+
+    // Garantir que todos os objetos sejam serializáveis
+    const serializableResult = JSON.parse(JSON.stringify(processedResult))
+
+    return serializableResult
   } catch (error: any) {
     console.error("Erro ao buscar promotores por localização:", error)
     throw new Error(error.message || "Erro ao buscar promotores por localização")
   }
 }
 
+// Adicionar a função getBandeiras que será usada para buscar as bandeiras e seus IDs
 export async function getBandeiras() {
   try {
     const bandeiras = await prisma.bandeira.findMany({
@@ -307,8 +439,24 @@ export async function getBandeiras() {
   }
 }
 
+// Adicione esta função para buscar lojas por bandeira
 export async function getLojasPorBandeira(bandeiraId: number) {
   try {
+    console.log(`Buscando lojas para bandeira ID: ${bandeiraId}`)
+
+    // Verificar se a bandeira existe
+    const bandeira = await prisma.bandeira.findUnique({
+      where: {
+        id: bandeiraId,
+      },
+    })
+
+    if (!bandeira) {
+      console.error(`Bandeira com ID ${bandeiraId} não encontrada`)
+      return []
+    }
+
+    // Buscar todas as lojas desta bandeira
     const lojas = await prisma.loja.findMany({
       where: {
         bandeira_id: bandeiraId,
@@ -317,6 +465,8 @@ export async function getLojasPorBandeira(bandeiraId: number) {
         nome: "asc",
       },
     })
+
+    console.log(`Encontradas ${lojas.length} lojas para bandeira ${bandeira.nome} (ID: ${bandeiraId})`)
 
     return lojas.map((loja) => ({
       id: loja.id,
@@ -328,6 +478,19 @@ export async function getLojasPorBandeira(bandeiraId: number) {
   }
 }
 
+// Adicione esta função auxiliar para normalizar strings (remover acentos e converter para maiúsculas)
+function normalizarTexto(texto: string | null | undefined): string {
+  if (!texto) return ""
+
+  // Converter para string, remover acentos e converter para maiúsculas
+  return texto
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+    .toUpperCase()
+}
+
+// Modifique a função getCidadesPorUF para usar a normalização
 export async function getCidadesPorUF(uf: string) {
   try {
     // Primeiro, buscar todas as cidades dos promotores
@@ -355,14 +518,33 @@ export async function getCidadesPorUF(uf: string) {
       distinct: ["cidade"],
     })
 
-    // Combinar e remover duplicatas
-    const todasCidades = new Set([
-      ...cidadesPromotores.map((p) => p.cidade).filter(Boolean),
-      ...cidadesLojas.map((l) => l.cidade).filter(Boolean),
-    ] as string[])
+    // Mapa para armazenar cidades normalizadas e suas versões originais
+    // Usamos um Map para garantir que não haja duplicatas
+    const cidadesMap = new Map<string, string>()
 
-    // Converter para o formato esperado
-    const cidadesArray = Array.from(todasCidades).map((cidade, index) => ({
+    // Processar cidades dos promotores
+    cidadesPromotores.forEach((p) => {
+      if (p.cidade) {
+        const cidadeNormalizada = normalizarTexto(p.cidade)
+        // Se a cidade já existe no mapa, mantemos a primeira versão encontrada
+        if (!cidadesMap.has(cidadeNormalizada)) {
+          cidadesMap.set(cidadeNormalizada, cidadeNormalizada)
+        }
+      }
+    })
+
+    // Processar cidades das lojas
+    cidadesLojas.forEach((l) => {
+      if (l.cidade) {
+        const cidadeNormalizada = normalizarTexto(l.cidade)
+        if (!cidadesMap.has(cidadeNormalizada)) {
+          cidadesMap.set(cidadeNormalizada, cidadeNormalizada)
+        }
+      }
+    })
+
+    // Converter o mapa para array
+    const cidadesArray = Array.from(cidadesMap.values()).map((cidade, index) => ({
       id: index + 1,
       nome: cidade,
     }))
@@ -584,12 +766,22 @@ export async function getValorHoraPromotorPeriodo(promotorId: number, periodoId:
   try {
     console.log(`Buscando valor da hora para promotor ${promotorId} e período ${periodoId}`)
 
-    // Usar SQL direto para evitar problemas com o Prisma
+    // Garantir que os IDs sejam números
+    const promotorIdNumber = Number(promotorId)
+    const periodoIdNumber = Number(periodoId)
+
+    // Verificar se os IDs são números válidos
+    if (isNaN(promotorIdNumber) || isNaN(periodoIdNumber)) {
+      console.error(`IDs inválidos: promotorId=${promotorId}, periodoId=${periodoId}`)
+      return 40 // Valor padrão em caso de erro
+    }
+
+    // Usar SQL direto com conversão explícita de tipos
     const valores = await prisma.$queryRaw<ValorHoraResult[]>`
-      SELECT valor_hora
+      SELECT valor_hora::float as valor_hora
       FROM valores_promotor_periodo
-      WHERE promotor_id = ${promotorId}
-      AND periodo_id = ${periodoId}
+      WHERE promotor_id = ${promotorIdNumber}::integer
+      AND periodo_id = ${periodoIdNumber}::integer
       AND (data_fim IS NULL OR data_fim > NOW())
       ORDER BY data_inicio DESC
       LIMIT 1
@@ -600,10 +792,78 @@ export async function getValorHoraPromotorPeriodo(promotorId: number, periodoId:
       return 40 // Valor padrão caso não encontre
     }
 
-    console.log(`Valor encontrado: R$ ${valores[0].valor_hora}`)
-    return valores[0].valor_hora
-  } catch (error) {
+    // Converter explicitamente para número JavaScript
+    const valorHora = Number(valores[0].valor_hora)
+    console.log(`Valor encontrado: R$ ${valorHora}`)
+
+    // Verificar se a conversão foi bem-sucedida
+    if (isNaN(valorHora)) {
+      console.error(`Erro ao converter valor da hora para número: ${valores[0].valor_hora}`)
+      return 40 // Valor padrão em caso de erro
+    }
+
+    return valorHora
+  } catch (error: any) {
     console.error(`Erro ao buscar valor da hora:`, error)
     return 40 // Valor padrão em caso de erro
+  }
+}
+
+// Adicione uma função para depurar o banco de dados
+export async function debugDatabase() {
+  try {
+    console.log("Iniciando debug do banco de dados...")
+
+    // Verificar total de promotores
+    const totalPromotores = await prisma.promotor.count()
+    console.log(`Total de promotores: ${totalPromotores}`)
+
+    // Verificar UFs disponíveis
+    const ufs = await prisma.$queryRaw`SELECT DISTINCT uf FROM promotores WHERE uf IS NOT NULL`
+    console.log(`UFs disponíveis: ${JSON.stringify(ufs)}`)
+
+    // Verificar algumas cidades por UF
+    for (const ufObj of ufs as any[]) {
+      const uf = ufObj.uf
+      const cidades = await prisma.$queryRaw`
+        SELECT DISTINCT cidade FROM promotores 
+        WHERE uf = ${uf} AND cidade IS NOT NULL 
+        LIMIT 5
+      `
+      console.log(`Cidades em ${uf}: ${JSON.stringify(cidades)}`)
+    }
+
+    // Verificar bandeiras
+    const bandeiras = await prisma.bandeira.findMany({
+      select: { id: true, nome: true },
+      take: 10,
+    })
+    console.log(`Bandeiras: ${JSON.stringify(bandeiras)}`)
+
+    // Verificar lojas
+    const lojas = await prisma.loja.findMany({
+      select: { id: true, nome: true, bandeira_id: true, cidade: true, uf: true },
+      take: 10,
+    })
+    console.log(`Lojas: ${JSON.stringify(lojas)}`)
+
+    // Verificar relações promotor-loja
+    const promotorLojas = await prisma.promotorLoja.count()
+    console.log(`Total de relações promotor-loja: ${promotorLojas}`)
+
+    return {
+      success: true,
+      totalPromotores,
+      ufs: ufs,
+      bandeiras,
+      lojas: lojas.length,
+      promotorLojas,
+    }
+  } catch (error) {
+    console.error("Erro ao depurar banco de dados:", error)
+    return {
+      success: false,
+      error: String(error),
+    }
   }
 }

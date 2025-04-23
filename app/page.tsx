@@ -4,10 +4,20 @@ import { useState, useEffect } from "react"
 import { LocationSearchForm } from "@/components/location-search-form"
 import { CandidateList } from "@/components/candidate-list"
 import { Loader2, Database, RefreshCw } from "lucide-react"
-import { checkDatabaseConnection, seedDatabaseIfEmpty, testDatabaseConnection } from "@/lib/server-actions"
+import {
+  checkDatabaseConnection,
+  seedDatabaseIfEmpty,
+  testDatabaseConnection,
+  debugDatabase,
+} from "@/lib/server-actions"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+
+// Adicione esta função auxiliar no início do arquivo, logo após as importações
+function replaceBigInt(key: string, value: any) {
+  return typeof value === "bigint" ? value.toString() : value
+}
 
 export default function Home() {
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -74,9 +84,76 @@ export default function Home() {
     }
   }
 
-  // Função para lidar com os resultados da pesquisa
+  // Adicione esta função dentro do componente Home
+  const handleDebugDatabase = async () => {
+    try {
+      const result = await debugDatabase()
+      console.log("Resultado do debug:", result)
+      setDbStatus({
+        success: true,
+        message: "Debug do banco de dados concluído",
+        result: result,
+      })
+    } catch (error) {
+      console.error("Erro ao depurar banco de dados:", error)
+      setDbStatus({
+        success: false,
+        message: "Erro ao depurar banco de dados",
+        error: String(error),
+      })
+    }
+  }
+
+  // Modifique a função handleSearchResults para garantir que os resultados sejam serializáveis
   const handleSearchResults = (results: any[]) => {
-    setSearchResults(results)
+    try {
+      console.log(
+        `Recebidos ${results.length} resultados da pesquisa:`,
+        results.length > 0 ? JSON.stringify(results.slice(0, 2), replaceBigInt) : "[]",
+      )
+
+      // Garantir que os resultados sejam serializáveis
+      const serializableResults = JSON.parse(JSON.stringify(results))
+      setSearchResults(serializableResults)
+    } catch (error) {
+      console.error("Erro ao processar resultados:", error)
+
+      // Em caso de erro, tentar uma abordagem mais segura
+      try {
+        // Criar objetos simples sem métodos ou protótipos complexos
+        const safeResults = results.map((item) => {
+          const safeItem: any = {}
+
+          // Copiar apenas propriedades básicas
+          for (const key in item) {
+            if (Object.prototype.hasOwnProperty.call(item, key)) {
+              const value = item[key]
+
+              // Tratar tipos especiais
+              if (typeof value === "bigint") {
+                safeItem[key] = value.toString()
+              } else if (Array.isArray(value)) {
+                // Para arrays, fazer uma cópia rasa
+                safeItem[key] = [...value]
+              } else if (value !== null && typeof value === "object") {
+                // Para objetos, fazer uma cópia rasa
+                safeItem[key] = { ...value }
+              } else {
+                // Para tipos primitivos, copiar diretamente
+                safeItem[key] = value
+              }
+            }
+          }
+
+          return safeItem
+        })
+
+        setSearchResults(safeResults)
+      } catch (fallbackError) {
+        console.error("Erro ao processar resultados (fallback):", fallbackError)
+        setSearchResults([]) // Último recurso: limpar os resultados
+      }
+    }
   }
 
   // Atualizar a função handleLocationInfo para aceitar apenas UF e cidade
@@ -136,6 +213,10 @@ export default function Home() {
               Testar Conexão
             </>
           )}
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleDebugDatabase} className="ml-2">
+          <Database className="h-4 w-4 mr-2" />
+          Debug DB
         </Button>
       </div>
 
