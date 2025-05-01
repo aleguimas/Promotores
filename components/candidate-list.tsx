@@ -1,23 +1,24 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { ChevronDown, ChevronUp } from "lucide-react"
-import { useCart, type DiaDaSemana, diasDaSemana, type CartItem } from "../contexts/cart-context"
+import { useCart, type DiaDaSemana, diasDaSemana } from "../contexts/cart-context"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { getPeriodosByTipoDia, getValorHoraPromotorPeriodo, getLojasPorBandeira, getBandeiras } from "../lib/actions"
+import { getPeriodosByTipoDia, getLojasPorBandeira, getBandeiras } from "../lib/actions"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
-  DialogClose,
 } from "@/components/ui/dialog"
+import { getValorHoraPromotorPeriodo } from "../lib/actions"
 
 // Função auxiliar para serializar BigInt
 function replaceBigInt(key: string, value: any) {
@@ -45,13 +46,13 @@ interface Candidate {
 
 interface Disponibilidade {
   promotor_id: number
-  segunda: string
-  terca: string
-  quarta: string
-  quinta: string
-  sexta: string
-  sabado: string
-  domingo: string
+  segunda: number
+  terca: number
+  quarta: number
+  quinta: number
+  sexta: number
+  sabado: number
+  domingo: number
 }
 
 // Interface para armazenar a seleção de horas e período por dia
@@ -61,13 +62,15 @@ interface DaySelection {
   period: string
 }
 
-// Interface para períodos
+// Atualizar a interface Periodo para aceitar tanto Date quanto string
 interface Periodo {
   id: number
   tipo_dia: string
-  inicio: string
-  fim: string
+  inicio: Date | string
+  fim: Date | string
   descricao: string
+  inicioFormatado?: string
+  fimFormatado?: string
 }
 
 // Interface para bandeiras
@@ -216,7 +219,7 @@ function DaySelectionForm({
       {/* Dias úteis (segunda a sexta) */}
       <div className="space-y-4">
         {DIAS_UTEIS.map((day) => {
-          const dispHoras = Number.parseInt(disponibilidade[day] || "0")
+          const dispHoras = disponibilidade[day] || 0
           const dayName = diasDaSemana[day]
           const daySelection = selection[day]
           const periodos = localPeriodosPorDia[day] || []
@@ -274,7 +277,7 @@ function DaySelectionForm({
                             id={`${candidate.id}-${day}-period-${periodo.id}`}
                           />
                           <Label htmlFor={`${candidate.id}-${day}-period-${periodo.id}`} className="text-sm">
-                            {periodo.descricao}
+                            {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
                           </Label>
                         </div>
                       ))}
@@ -287,7 +290,7 @@ function DaySelectionForm({
         })}
 
         {/* Sábado */}
-        {disponibilidade.sabado !== "0" && (
+        {disponibilidade.sabado > 0 && (
           <div className="border-b pb-3">
             <div className="flex items-center space-x-2">
               <Checkbox
@@ -310,14 +313,11 @@ function DaySelectionForm({
                     id={`${candidate.id}-sabado-hours`}
                     type="number"
                     min="1"
-                    max={Number.parseInt(disponibilidade.sabado)}
+                    max={disponibilidade.sabado}
                     value={selection.sabado.hours}
                     onChange={(e) => {
                       const value = e.target.value ? Number(e.target.value) : ""
-                      if (
-                        value === "" ||
-                        (typeof value === "number" && value <= Number.parseInt(disponibilidade.sabado))
-                      ) {
+                      if (value === "" || (typeof value === "number" && value <= disponibilidade.sabado)) {
                         handleDaySelectionChange(candidate.id, "sabado", "hours", value)
                       }
                     }}
@@ -336,7 +336,7 @@ function DaySelectionForm({
                       <div key={periodo.id} className="flex items-center space-x-2">
                         <RadioGroupItem value={String(periodo.id)} id={`${candidate.id}-sabado-period-${periodo.id}`} />
                         <Label htmlFor={`${candidate.id}-sabado-period-${periodo.id}`} className="text-sm">
-                          {periodo.descricao}
+                          {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
                         </Label>
                       </div>
                     ))}
@@ -348,7 +348,7 @@ function DaySelectionForm({
         )}
 
         {/* Domingo */}
-        {disponibilidade.domingo !== "0" && (
+        {disponibilidade.domingo > 0 && (
           <div className="border-b pb-3">
             <div className="flex items-center space-x-2">
               <Checkbox
@@ -371,14 +371,11 @@ function DaySelectionForm({
                     id={`${candidate.id}-domingo-hours`}
                     type="number"
                     min="1"
-                    max={Number.parseInt(disponibilidade.domingo)}
+                    max={disponibilidade.domingo}
                     value={selection.domingo.hours}
                     onChange={(e) => {
                       const value = e.target.value ? Number(e.target.value) : ""
-                      if (
-                        value === "" ||
-                        (typeof value === "number" && value <= Number.parseInt(disponibilidade.domingo))
-                      ) {
+                      if (value === "" || (typeof value === "number" && value <= disponibilidade.domingo)) {
                         handleDaySelectionChange(candidate.id, "domingo", "hours", value)
                       }
                     }}
@@ -400,7 +397,7 @@ function DaySelectionForm({
                           id={`${candidate.id}-domingo-period-${periodo.id}`}
                         />
                         <Label htmlFor={`${candidate.id}-domingo-period-${periodo.id}`} className="text-sm">
-                          {periodo.descricao}
+                          {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
                         </Label>
                       </div>
                     ))}
@@ -601,7 +598,7 @@ export function CandidateList({ title, description, candidates }: CandidateListP
   // Inicializa as seleções para todos os candidatos visíveis
   useEffect(() => {
     const newSelections: Record<number, Record<DiaDaSemana, DaySelection>> = { ...candidateSelections }
-    let hasChanges = false
+    const hasChanges = false
 
     visibleCandidates.forEach((candidate) => {
       // Se já existe uma seleção para este candidato, não fazer nada
@@ -613,7 +610,6 @@ export function CandidateList({ title, description, candidates }: CandidateListP
       if (existingItem) {
         // Se já estiver no carrinho, usar as seleções existentes
         newSelections[candidate.id] = existingItem.selectedDays
-        hasChanges = true
       } else {
         // Caso contrário, inicializar com valores vazios
         newSelections[candidate.id] = {
@@ -625,15 +621,14 @@ export function CandidateList({ title, description, candidates }: CandidateListP
           sabado: { selected: false, hours: "", period: "" },
           domingo: { selected: false, hours: "", period: "" },
         }
-        hasChanges = true
       }
     })
 
     // Atualizar o estado apenas se houver mudanças
-    if (hasChanges) {
+    if (Object.keys(newSelections).length !== Object.keys(candidateSelections).length) {
       setCandidateSelections(newSelections)
     }
-  }, [visibleCandidates, items])
+  }, [visibleCandidates, items, candidateSelections])
 
   // Atualiza a seleção de um dia específico para um candidato
   const handleDaySelectionChange = (candidateId: number, day: DiaDaSemana, field: keyof DaySelection, value: any) => {
@@ -811,7 +806,7 @@ export function CandidateList({ title, description, candidates }: CandidateListP
           }
         })
 
-        const cartItem: CartItem = {
+        const cartItem = {
           id: candidate.id,
           promotor: candidate.promotor || candidate.nome,
           familia: candidate.familia || "",

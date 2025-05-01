@@ -2,12 +2,14 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["promotores"]
 }
 
 model Bandeira {
@@ -17,6 +19,7 @@ model Bandeira {
   lojas     Loja[]
 
   @@map("bandeiras")
+  @@schema("promotores")
 }
 
 model Loja {
@@ -25,47 +28,46 @@ model Loja {
   nome        String
   cidade      String
   uf          String
+  cep         String?
+  bairro      String?
+  endereco    String?
   bandeira    Bandeira       @relation(fields: [bandeira_id], references: [id])
   promotores  PromotorLoja[]
 
   @@map("lojas")
+  @@schema("promotores")
 }
 
 model Promotor {
   id            Int             @id @default(autoincrement())
   nome          String
   cpf           String?
-  endereco      String?
-  bairro        String?
-  cidade        String?
-  uf            String?
-  cep           String?
   familia       String?
   horasistema   String?
   cargo_campo   String?
   status_usuario String?
-  latitude      Float?
-  longitude     Float?
   disponibilidades Disponibilidade[]
   lojas         PromotorLoja[]
   selecoes      SelecaoPromotor[]
 
   @@map("promotores")
+  @@schema("promotores")
 }
 
 model Disponibilidade {
   id          Int      @id @default(autoincrement())
   promotor_id Int
-  segunda     String   @default("0")
-  terca       String   @default("0")
-  quarta      String   @default("0")
-  quinta      String   @default("0")
-  sexta       String   @default("0")
-  sabado      String   @default("0")
-  domingo     String   @default("0")
+  segunda     Int      @default(0)
+  terca       Int      @default(0)
+  quarta      Int      @default(0)
+  quinta      Int      @default(0)
+  sexta       Int      @default(0)
+  sabado      Int      @default(0)
+  domingo     Int      @default(0)
   promotor    Promotor @relation(fields: [promotor_id], references: [id])
 
   @@map("disponibilidades")
+  @@schema("promotores")
 }
 
 model PromotorLoja {
@@ -76,17 +78,19 @@ model PromotorLoja {
   loja        Loja     @relation(fields: [loja_id], references: [id])
 
   @@map("promotor_loja")
+  @@schema("promotores")
 }
 
 model Periodo {
   id          Int              @id @default(autoincrement())
   tipo_dia    String
-  inicio      String
-  fim         String
+  inicio      DateTime
+  fim         DateTime
   descricao   String
   selecoes    SelecaoPromotor[]
 
   @@map("periodos")
+  @@schema("promotores")
 }
 
 model ValorPromotorPeriodo {
@@ -98,6 +102,7 @@ model ValorPromotorPeriodo {
   data_fim    DateTime?
 
   @@map("valores_promotor_periodo")
+  @@schema("promotores")
 }
 
 model Cliente {
@@ -108,6 +113,7 @@ model Cliente {
   pedidos     Pedido[]
 
   @@map("clientes")
+  @@schema("promotores")
 }
 
 model Pedido {
@@ -120,6 +126,7 @@ model Pedido {
   selecoes        SelecaoPromotor[]
 
   @@map("pedidos")
+  @@schema("promotores")
 }
 
 model SelecaoPromotor {
@@ -136,4 +143,5 @@ model SelecaoPromotor {
   periodo     Periodo  @relation(fields: [periodo_id], references: [id])
 
   @@map("selecao_promotores")
+  @@schema("promotores")
 }

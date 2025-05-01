@@ -4,15 +4,13 @@ import { useState, useEffect } from "react"
 import { LocationSearchForm } from "@/components/location-search-form"
 import { CandidateList } from "@/components/candidate-list"
 import { Loader2, Database, RefreshCw } from "lucide-react"
-import {
-  checkDatabaseConnection,
-  seedDatabaseIfEmpty,
-  testDatabaseConnection,
-  debugDatabase,
-} from "@/lib/server-actions"
+import { checkDatabaseConnection, testDatabaseConnection, debugDatabase } from "@/lib/server-actions"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+
+// Adic  CheckCircle } from "lucide-react"
+// import { Button } from "@/components/ui/button"
 
 // Adicione esta função auxiliar no início do arquivo, logo após as importações
 function replaceBigInt(key: string, value: any) {
@@ -45,12 +43,6 @@ export default function Home() {
         // Verificar conexão com o banco de dados
         const connectionStatus = await checkDatabaseConnection()
         setDbStatus(connectionStatus)
-
-        if (connectionStatus.success) {
-          // Se a conexão for bem-sucedida, tentar popular o banco se estiver vazio
-          const seedResult = await seedDatabaseIfEmpty()
-          console.log("Resultado do seed:", seedResult)
-        }
       } catch (error) {
         console.error("Erro ao inicializar banco de dados:", error)
         setDbStatus({
