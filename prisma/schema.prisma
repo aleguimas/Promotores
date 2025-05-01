@@ -110,6 +110,7 @@ model Cliente {
   nome        String
   email       String   @unique
   telefone    String?
+  senha       String?
   pedidos     Pedido[]
 
   @@map("clientes")

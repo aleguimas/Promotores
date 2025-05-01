@@ -1,12 +1,15 @@
 "use client"
 
 import { useCart, formatDaySelection } from "../contexts/cart-context"
+import { useAuth } from "../contexts/auth-context"
 import { Button } from "@/components/ui/button"
-import { ShoppingCart, X } from "lucide-react"
+import { ShoppingCart, X, AlertCircle } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useState } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { registrarPedido } from "../lib/actions"
+import { LoginDialog } from "./login-dialog"
+import { RegisterDialog } from "./register-dialog"
 
 // Interface para garantir compatibilidade com a função registrarPedido
 interface PedidoItem {
@@ -23,9 +26,12 @@ interface PedidoItem {
 
 export function CartDrawer() {
   const { items, removeItem, totalItems, totalValue, isOpen, setIsOpen, clearCart } = useCart()
+  const { user, isAuthenticated } = useAuth()
   const [paymentMethod, setPaymentMethod] = useState("")
   const [isCheckoutModalOpen, setCheckoutModalOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [registerOpen, setRegisterOpen] = useState(false)
   const { toast } = useToast()
 
   const handleCheckout = () => {
@@ -38,10 +44,39 @@ export function CartDrawer() {
       return
     }
 
+    // Verificar se o usuário está autenticado
+    if (!isAuthenticated) {
+      toast({
+        title: "Login necessário",
+        description: "Você precisa estar logado para finalizar o pedido",
+        variant: "destructive",
+      })
+      setLoginOpen(true)
+      return
+    }
+
     setCheckoutModalOpen(true)
   }
 
+  const handleLoginClick = () => {
+    setLoginOpen(true)
+  }
+
+  const handleRegisterClick = () => {
+    setRegisterOpen(true)
+  }
+
   const handleConfirmOrder = async () => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Login necessário",
+        description: "Você precisa estar logado para finalizar o pedido",
+        variant: "destructive",
+      })
+      setLoginOpen(true)
+      return
+    }
+
     if (!paymentMethod) {
       toast({
         title: "Selecione uma forma de pagamento",
@@ -75,9 +110,8 @@ export function CartDrawer() {
         }
       })
 
-      // Registrar o pedido no banco de dados
-      // Usando um ID de cliente temporário (1) - em produção, isso viria da autenticação
-      const clienteId = 1
+      // Registrar o pedido no banco de dados usando o ID do cliente logado
+      const clienteId = user?.id || 0
       const resultado = await registrarPedido(clienteId, paymentMethod, pedidoItens)
 
       if (resultado.success) {
@@ -93,7 +127,7 @@ export function CartDrawer() {
         clearCart()
         setPaymentMethod("")
       } else {
-        throw new Error("Falha ao registrar o pedido")
+        throw new Error(resultado.message || "Falha ao registrar o pedido")
       }
     } catch (error: any) {
       console.error("Erro ao confirmar pedido:", error)
@@ -147,6 +181,26 @@ export function CartDrawer() {
             </div>
           ) : (
             <>
+              {/* Aviso de login necessário */}
+              {!isAuthenticated && (
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-3 mb-4 flex items-start">
+                  <AlertCircle className="h-5 w-5 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-amber-800">Login necessário</p>
+                    <p className="text-amber-700 mt-1">
+                      Você precisa estar logado para finalizar o pedido.{" "}
+                      <button onClick={handleLoginClick} className="text-primary underline font-medium">
+                        Entrar
+                      </button>{" "}
+                      ou{" "}
+                      <button onClick={handleRegisterClick} className="text-primary underline font-medium">
+                        Criar conta
+                      </button>
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
                 {items.map((item) => (
                   <div key={item.id} className="flex flex-col border rounded-md p-3">
@@ -202,6 +256,26 @@ export function CartDrawer() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {/* Informações do cliente */}
+            {isAuthenticated && user && (
+              <div className="space-y-2">
+                <h3 className="font-medium">Informações do Cliente</h3>
+                <div className="text-sm">
+                  <p>
+                    <strong>Nome:</strong> {user.nome}
+                  </p>
+                  <p>
+                    <strong>E-mail:</strong> {user.email}
+                  </p>
+                  {user.telefone && (
+                    <p>
+                      <strong>Telefone:</strong> {user.telefone}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <h3 className="font-medium">Resumo do Pedido</h3>
               <div className="text-sm text-muted-foreground">
@@ -263,6 +337,25 @@ export function CartDrawer() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Diálogos de login e cadastro */}
+      <LoginDialog
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+        onRegisterClick={() => {
+          setLoginOpen(false)
+          setRegisterOpen(true)
+        }}
+      />
+
+      <RegisterDialog
+        open={registerOpen}
+        onOpenChange={setRegisterOpen}
+        onLoginClick={() => {
+          setRegisterOpen(false)
+          setLoginOpen(true)
+        }}
+      />
     </>
   )
 }

@@ -256,7 +256,10 @@ function DaySelectionForm({
                   {daySelection.selected && (
                     <div className="ml-6 mt-2 space-y-3">
                       <div>
-                        <Label htmlFor={`${candidate.id}-${day}-hours`} className="text-xs mb-1 block">
+                        <Label
+                          htmlFor={`${candidate.id}-${day}-hours`}
+                          className="text-sm font-medium mb-1 block text-primary"
+                        >
                           Horas:
                         </Label>
                         <input
@@ -272,12 +275,13 @@ function DaySelectionForm({
                               handleDaySelectionChange(candidate.id, day, "hours", value)
                             }
                           }}
-                          className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                          className="w-full h-10 px-3 py-2 text-base bg-white border-2 border-primary/70 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                          placeholder="Horas"
                         />
                       </div>
 
                       <div>
-                        <Label className="text-xs mb-1 block">Período:</Label>
+                        <Label className="text-sm font-medium mb-1 block text-primary">Período:</Label>
                         <RadioGroup
                           value={daySelection.period}
                           onValueChange={(value) => handleDaySelectionChange(candidate.id, day, "period", value)}
@@ -319,7 +323,10 @@ function DaySelectionForm({
                 {selection.sabado.selected && (
                   <div className="ml-6 mt-2 space-y-3">
                     <div>
-                      <Label htmlFor={`${candidate.id}-sabado-hours`} className="text-xs mb-1 block">
+                      <Label
+                        htmlFor={`${candidate.id}-sabado-hours`}
+                        className="text-sm font-medium mb-1 block text-primary"
+                      >
                         Horas:
                       </Label>
                       <input
@@ -334,12 +341,13 @@ function DaySelectionForm({
                             handleDaySelectionChange(candidate.id, "sabado", "hours", value)
                           }
                         }}
-                        className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                        className="w-full h-10 px-3 py-2 text-base bg-white border-2 border-primary/70 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                        placeholder="Horas"
                       />
                     </div>
 
                     <div>
-                      <Label className="text-xs mb-1 block">Período:</Label>
+                      <Label className="text-sm font-medium mb-1 block text-primary">Período:</Label>
                       <RadioGroup
                         value={selection.sabado.period}
                         onValueChange={(value) => handleDaySelectionChange(candidate.id, "sabado", "period", value)}
@@ -382,7 +390,10 @@ function DaySelectionForm({
                 {selection.domingo.selected && (
                   <div className="ml-6 mt-2 space-y-3">
                     <div>
-                      <Label htmlFor={`${candidate.id}-domingo-hours`} className="text-xs mb-1 block">
+                      <Label
+                        htmlFor={`${candidate.id}-domingo-hours`}
+                        className="text-sm font-medium mb-1 block text-primary"
+                      >
                         Horas:
                       </Label>
                       <input
@@ -397,12 +408,13 @@ function DaySelectionForm({
                             handleDaySelectionChange(candidate.id, "domingo", "hours", value)
                           }
                         }}
-                        className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                        className="w-full h-10 px-3 py-2 text-base bg-white border-2 border-primary/70 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                        placeholder="Horas"
                       />
                     </div>
 
                     <div>
-                      <Label className="text-xs mb-1 block">Período:</Label>
+                      <Label className="text-sm font-medium mb-1 block text-primary">Período:</Label>
                       <RadioGroup
                         value={selection.domingo.period}
                         onValueChange={(value) => handleDaySelectionChange(candidate.id, "domingo", "period", value)}

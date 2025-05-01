@@ -282,6 +282,120 @@ export async function seedDatabaseIfEmpty() {
   }
 }
 
+async function getValorHoraPromotorPeriodo(promotorId: number, periodoId: number): Promise<number> {
+  try {
+    const valorPromotorPeriodo = await prisma.valorPromotorPeriodo.findFirst({
+      where: {
+        promotor_id: promotorId,
+        periodo_id: periodoId,
+      },
+      orderBy: {
+        data_inicio: "desc",
+      },
+    })
+
+    if (!valorPromotorPeriodo) {
+      console.warn(
+        `Valor não encontrado para promotor ${promotorId} e período ${periodoId}. Retornando valor padrão de 40.`,
+      )
+      return 40 // Valor padrão caso não encontre
+    }
+
+    return valorPromotorPeriodo.valor_hora
+  } catch (error) {
+    console.error(`Erro ao buscar valor para promotor ${promotorId} e período ${periodoId}:`, error)
+    return 40 // Valor padrão em caso de erro
+  }
+}
+
+// Atualizar a função registrarPedido para usar o ID do cliente autenticado
+export async function registrarPedido(clienteId: number, formaPagamento: string, pedidoItens: any) {
+  try {
+    // Verificar se o cliente existe
+    if (!clienteId) {
+      return {
+        success: false,
+        message: "Cliente não identificado. Faça login para continuar.",
+      }
+    }
+
+    const cliente = await prisma.cliente.findUnique({
+      where: { id: clienteId },
+    })
+
+    if (!cliente) {
+      return {
+        success: false,
+        message: "Cliente não encontrado. Faça login novamente.",
+      }
+    }
+
+    // Criar o pedido
+    const pedido = await prisma.pedido.create({
+      data: {
+        cliente_id: clienteId,
+        forma_pagamento: formaPagamento,
+        status: "pendente", // Defina o status inicial
+      },
+    })
+
+    // Criar as seleções de promotores para o pedido
+    for (const item of pedidoItens) {
+      const { promotorId, diasSelecionados } = item
+
+      for (const dia in diasSelecionados) {
+        if (diasSelecionados.hasOwnProperty(dia)) {
+          const diaSelecionado = diasSelecionados[dia]
+
+          if (diaSelecionado.selected && diaSelecionado.hours && diaSelecionado.period) {
+            // Buscar o período pelo nome
+            const periodo = await prisma.periodo.findFirst({
+              where: {
+                id: Number.parseInt(diaSelecionado.period),
+              },
+            })
+
+            if (!periodo) {
+              throw new Error(`Período não encontrado: ${diaSelecionado.period}`)
+            }
+
+            // Buscar o valor da hora para este promotor e período
+            const valorHora = await getValorHoraPromotorPeriodo(promotorId, periodo.id)
+
+            // Calcular o valor total
+            const horas = Number(diaSelecionado.hours)
+            const valor_total = horas * valorHora
+
+            await prisma.selecaoPromotor.create({
+              data: {
+                pedido_id: pedido.id,
+                promotor_id: promotorId,
+                dia_semana: dia,
+                periodo_id: periodo.id,
+                horas: horas,
+                valor_hora: valorHora,
+                valor_total: valor_total,
+              },
+            })
+          }
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: "Pedido registrado com sucesso!",
+      pedidoId: pedido.id,
+    }
+  } catch (error: any) {
+    console.error("Erro ao registrar pedido:", error)
+    return {
+      success: false,
+      message: error.message || "Erro ao registrar pedido",
+    }
+  }
+}
+
 // Função para testar explicitamente a conexão com o banco de dados
 export async function testDatabaseConnection() {
   try {

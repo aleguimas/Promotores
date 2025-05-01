@@ -3,6 +3,7 @@
 import { CartDrawer } from "./cart-drawer"
 import { useCart } from "../contexts/cart-context"
 import { ModeToggle } from "./mode-toggle"
+import { AuthButton } from "./auth-button"
 import Link from "next/link"
 
 export function SiteHeader() {
@@ -27,6 +28,7 @@ export function SiteHeader() {
               <span className="text-muted-foreground">Total:</span> <strong>R$ {totalValue.toFixed(2)}</strong>
             </div>
           )}
+          <AuthButton />
           <ModeToggle />
           <CartDrawer />
         </div>
