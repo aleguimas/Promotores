@@ -118,7 +118,7 @@ export function CartDrawer() {
         >
           <ShoppingCart className="h-6 w-6" />
           {totalItems > 0 && (
-            <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 gm-gradient-bg text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
               {totalItems}
             </span>
           )}
@@ -184,7 +184,7 @@ export function CartDrawer() {
                   <Button variant="outline" onClick={() => setIsOpen(false)} className="flex-1">
                     Continuar Comprando
                   </Button>
-                  <Button onClick={handleCheckout} className="flex-1">
+                  <Button onClick={handleCheckout} className="flex-1 gm-gradient-bg">
                     Finalizar Pedido
                   </Button>
                 </div>
@@ -257,7 +257,7 @@ export function CartDrawer() {
             <Button variant="outline" onClick={() => setCheckoutModalOpen(false)} disabled={isProcessing}>
               Cancelar
             </Button>
-            <Button onClick={handleConfirmOrder} disabled={!paymentMethod || isProcessing}>
+            <Button onClick={handleConfirmOrder} disabled={!paymentMethod || isProcessing} className="gm-gradient-bg">
               {isProcessing ? "Processando..." : "Confirmar Pedido"}
             </Button>
           </DialogFooter>

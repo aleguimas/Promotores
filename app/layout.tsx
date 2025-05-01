@@ -5,14 +5,17 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { CartProvider } from "@/contexts/cart-context"
 import { SiteHeader } from "@/components/site-header"
+import { SiteFooter } from "@/components/site-footer"
 import { Toaster } from "@/components/ui/toaster"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Marketplace de Promotores",
+  title: "GM PROMO - Marketplace de Promotores",
   description: "Encontre e contrate promotores para sua loja",
-    generator: 'v0.dev'
+  icons: {
+    icon: "/favicon.ico",
+  },
 }
 
 export default function RootLayout({
@@ -30,6 +33,7 @@ export default function RootLayout({
               <div className="flex-1">
                 <div className="container py-6">{children}</div>
               </div>
+              <SiteFooter />
             </div>
             <Toaster />
           </CartProvider>

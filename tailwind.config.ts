@@ -53,6 +53,15 @@ const config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // GM PROMO cores específicas
+        gmpromo: {
+          pink: "#ff3366",
+          purple: "#9966ff",
+          blue: "#33ccff",
+        },
+      },
+      backgroundImage: {
+        "gm-gradient": "linear-gradient(to right, #ff3366, #9966ff, #33ccff)",
       },
       borderRadius: {
         lg: "var(--radius)",

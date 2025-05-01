@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react"
 import { useCart, type DiaDaSemana, diasDaSemana } from "../contexts/cart-context"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { getPeriodosByTipoDia, getLojasPorBandeira, getBandeiras } from "../lib/actions"
+import { getPeriodosByTipoDia } from "../lib/actions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -125,10 +125,14 @@ function DaySelectionForm({
     sabado: [],
     domingo: [],
   })
+  const [isLoading, setIsLoading] = useState(false)
 
   // Função para carregar os períodos disponíveis para este candidato
   const fetchPeriodos = useCallback(async () => {
+    if (isLoading) return // Evitar múltiplas chamadas simultâneas
+
     try {
+      setIsLoading(true)
       // Carregar períodos para cada tipo de dia
       const [segundaFeiraPeriodos, sabadoPeriodos, domingoPeriodos] = await Promise.all([
         getPeriodosByTipoDia("segunda_sexta"),
@@ -153,15 +157,17 @@ function DaySelectionForm({
         description: "Não foi possível carregar os períodos disponíveis.",
         variant: "destructive",
       })
+    } finally {
+      setIsLoading(false)
     }
   }, [toast])
 
   // Carregar períodos quando o formulário for aberto
   useEffect(() => {
-    if (isFormOpen) {
+    if (isFormOpen && !isLoading && Object.values(localPeriodosPorDia).every((arr) => arr.length === 0)) {
       fetchPeriodos()
     }
-  }, [isFormOpen, fetchPeriodos])
+  }, [isFormOpen, fetchPeriodos, localPeriodosPorDia, isLoading])
 
   // Get disponibilidade from candidate
   const disponibilidade = candidate.disponibilidades?.[0] || candidate.disponibilidade
@@ -216,198 +222,212 @@ function DaySelectionForm({
         </Button>
       </div>
 
-      {/* Dias úteis (segunda a sexta) */}
-      <div className="space-y-4">
-        {DIAS_UTEIS.map((day) => {
-          const dispHoras = disponibilidade[day] || 0
-          const dayName = diasDaSemana[day]
-          const daySelection = selection[day]
-          const periodos = localPeriodosPorDia[day] || []
+      {isLoading ? (
+        <div className="flex justify-center py-4">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span className="ml-2">Carregando períodos...</span>
+        </div>
+      ) : (
+        <>
+          {/* Dias úteis (segunda a sexta) */}
+          <div className="space-y-4">
+            {DIAS_UTEIS.map((day) => {
+              const dispHoras = disponibilidade[day] || 0
+              const dayName = diasDaSemana[day]
+              const daySelection = selection[day]
+              const periodos = localPeriodosPorDia[day] || []
 
-          // Não mostrar dias sem disponibilidade
-          if (dispHoras === 0) return null
+              // Não mostrar dias sem disponibilidade
+              if (dispHoras === 0) return null
 
-          return (
-            <div key={day} className="border-b pb-3">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={`${candidate.id}-${day}`}
-                  checked={daySelection.selected}
-                  onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, day, "selected", checked)}
-                />
-                <Label htmlFor={`${candidate.id}-${day}`} className="text-sm font-medium">
-                  {dayName}
-                </Label>
-              </div>
-
-              {daySelection.selected && (
-                <div className="ml-6 mt-2 space-y-3">
-                  <div>
-                    <Label htmlFor={`${candidate.id}-${day}-hours`} className="text-xs mb-1 block">
-                      Horas:
-                    </Label>
-                    <input
-                      id={`${candidate.id}-${day}-hours`}
-                      type="number"
-                      min="1"
-                      max={dispHoras}
-                      value={daySelection.hours}
-                      onChange={(e) => {
-                        const value = e.target.value ? Number(e.target.value) : ""
-                        // Validar que não excede a disponibilidade
-                        if (value === "" || (typeof value === "number" && value <= dispHoras)) {
-                          handleDaySelectionChange(candidate.id, day, "hours", value)
-                        }
-                      }}
-                      className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+              return (
+                <div key={day} className="border-b pb-3">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`${candidate.id}-${day}`}
+                      checked={daySelection.selected}
+                      onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, day, "selected", checked)}
                     />
+                    <Label htmlFor={`${candidate.id}-${day}`} className="text-sm font-medium">
+                      {dayName}
+                    </Label>
                   </div>
 
-                  <div>
-                    <Label className="text-xs mb-1 block">Período:</Label>
-                    <RadioGroup
-                      value={daySelection.period}
-                      onValueChange={(value) => handleDaySelectionChange(candidate.id, day, "period", value)}
-                      className="space-y-1"
-                    >
-                      {periodos.map((periodo) => (
-                        <div key={periodo.id} className="flex items-center space-x-2">
-                          <RadioGroupItem
-                            value={String(periodo.id)}
-                            id={`${candidate.id}-${day}-period-${periodo.id}`}
-                          />
-                          <Label htmlFor={`${candidate.id}-${day}-period-${periodo.id}`} className="text-sm">
-                            {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
-                          </Label>
-                        </div>
-                      ))}
-                    </RadioGroup>
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
-
-        {/* Sábado */}
-        {disponibilidade.sabado > 0 && (
-          <div className="border-b pb-3">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id={`${candidate.id}-sabado`}
-                checked={selection.sabado.selected}
-                onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, "sabado", "selected", checked)}
-              />
-              <Label htmlFor={`${candidate.id}-sabado`} className="text-sm font-medium">
-                Sábado
-              </Label>
-            </div>
-
-            {selection.sabado.selected && (
-              <div className="ml-6 mt-2 space-y-3">
-                <div>
-                  <Label htmlFor={`${candidate.id}-sabado-hours`} className="text-xs mb-1 block">
-                    Horas:
-                  </Label>
-                  <input
-                    id={`${candidate.id}-sabado-hours`}
-                    type="number"
-                    min="1"
-                    max={disponibilidade.sabado}
-                    value={selection.sabado.hours}
-                    onChange={(e) => {
-                      const value = e.target.value ? Number(e.target.value) : ""
-                      if (value === "" || (typeof value === "number" && value <= disponibilidade.sabado)) {
-                        handleDaySelectionChange(candidate.id, "sabado", "hours", value)
-                      }
-                    }}
-                    className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-xs mb-1 block">Período:</Label>
-                  <RadioGroup
-                    value={selection.sabado.period}
-                    onValueChange={(value) => handleDaySelectionChange(candidate.id, "sabado", "period", value)}
-                    className="space-y-1"
-                  >
-                    {localPeriodosPorDia["sabado"].map((periodo) => (
-                      <div key={periodo.id} className="flex items-center space-x-2">
-                        <RadioGroupItem value={String(periodo.id)} id={`${candidate.id}-sabado-period-${periodo.id}`} />
-                        <Label htmlFor={`${candidate.id}-sabado-period-${periodo.id}`} className="text-sm">
-                          {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
+                  {daySelection.selected && (
+                    <div className="ml-6 mt-2 space-y-3">
+                      <div>
+                        <Label htmlFor={`${candidate.id}-${day}-hours`} className="text-xs mb-1 block">
+                          Horas:
                         </Label>
-                      </div>
-                    ))}
-                  </RadioGroup>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Domingo */}
-        {disponibilidade.domingo > 0 && (
-          <div className="border-b pb-3">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id={`${candidate.id}-domingo`}
-                checked={selection.domingo.selected}
-                onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, "domingo", "selected", checked)}
-              />
-              <Label htmlFor={`${candidate.id}-domingo`} className="text-sm font-medium">
-                Domingo
-              </Label>
-            </div>
-
-            {selection.domingo.selected && (
-              <div className="ml-6 mt-2 space-y-3">
-                <div>
-                  <Label htmlFor={`${candidate.id}-domingo-hours`} className="text-xs mb-1 block">
-                    Horas:
-                  </Label>
-                  <input
-                    id={`${candidate.id}-domingo-hours`}
-                    type="number"
-                    min="1"
-                    max={disponibilidade.domingo}
-                    value={selection.domingo.hours}
-                    onChange={(e) => {
-                      const value = e.target.value ? Number(e.target.value) : ""
-                      if (value === "" || (typeof value === "number" && value <= disponibilidade.domingo)) {
-                        handleDaySelectionChange(candidate.id, "domingo", "hours", value)
-                      }
-                    }}
-                    className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-xs mb-1 block">Período:</Label>
-                  <RadioGroup
-                    value={selection.domingo.period}
-                    onValueChange={(value) => handleDaySelectionChange(candidate.id, "domingo", "period", value)}
-                    className="space-y-1"
-                  >
-                    {localPeriodosPorDia["domingo"].map((periodo) => (
-                      <div key={periodo.id} className="flex items-center space-x-2">
-                        <RadioGroupItem
-                          value={String(periodo.id)}
-                          id={`${candidate.id}-domingo-period-${periodo.id}`}
+                        <input
+                          id={`${candidate.id}-${day}-hours`}
+                          type="number"
+                          min="1"
+                          max={dispHoras}
+                          value={daySelection.hours}
+                          onChange={(e) => {
+                            const value = e.target.value ? Number(e.target.value) : ""
+                            // Validar que não excede a disponibilidade
+                            if (value === "" || (typeof value === "number" && value <= dispHoras)) {
+                              handleDaySelectionChange(candidate.id, day, "hours", value)
+                            }
+                          }}
+                          className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
                         />
-                        <Label htmlFor={`${candidate.id}-domingo-period-${periodo.id}`} className="text-sm">
-                          {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
-                        </Label>
                       </div>
-                    ))}
-                  </RadioGroup>
+
+                      <div>
+                        <Label className="text-xs mb-1 block">Período:</Label>
+                        <RadioGroup
+                          value={daySelection.period}
+                          onValueChange={(value) => handleDaySelectionChange(candidate.id, day, "period", value)}
+                          className="space-y-1"
+                        >
+                          {periodos.map((periodo) => (
+                            <div key={periodo.id} className="flex items-center space-x-2">
+                              <RadioGroupItem
+                                value={String(periodo.id)}
+                                id={`${candidate.id}-${day}-period-${periodo.id}`}
+                              />
+                              <Label htmlFor={`${candidate.id}-${day}-period-${periodo.id}`} className="text-sm">
+                                {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
+                              </Label>
+                            </div>
+                          ))}
+                        </RadioGroup>
+                      </div>
+                    </div>
+                  )}
                 </div>
+              )
+            })}
+
+            {/* Sábado */}
+            {disponibilidade.sabado > 0 && (
+              <div className="border-b pb-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`${candidate.id}-sabado`}
+                    checked={selection.sabado.selected}
+                    onCheckedChange={(checked) => handleDaySelectionChange(candidate.id, "sabado", "selected", checked)}
+                  />
+                  <Label htmlFor={`${candidate.id}-sabado`} className="text-sm font-medium">
+                    Sábado
+                  </Label>
+                </div>
+
+                {selection.sabado.selected && (
+                  <div className="ml-6 mt-2 space-y-3">
+                    <div>
+                      <Label htmlFor={`${candidate.id}-sabado-hours`} className="text-xs mb-1 block">
+                        Horas:
+                      </Label>
+                      <input
+                        id={`${candidate.id}-sabado-hours`}
+                        type="number"
+                        min="1"
+                        max={disponibilidade.sabado}
+                        value={selection.sabado.hours}
+                        onChange={(e) => {
+                          const value = e.target.value ? Number(e.target.value) : ""
+                          if (value === "" || (typeof value === "number" && value <= disponibilidade.sabado)) {
+                            handleDaySelectionChange(candidate.id, "sabado", "hours", value)
+                          }
+                        }}
+                        className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs mb-1 block">Período:</Label>
+                      <RadioGroup
+                        value={selection.sabado.period}
+                        onValueChange={(value) => handleDaySelectionChange(candidate.id, "sabado", "period", value)}
+                        className="space-y-1"
+                      >
+                        {localPeriodosPorDia["sabado"].map((periodo) => (
+                          <div key={periodo.id} className="flex items-center space-x-2">
+                            <RadioGroupItem
+                              value={String(periodo.id)}
+                              id={`${candidate.id}-sabado-period-${periodo.id}`}
+                            />
+                            <Label htmlFor={`${candidate.id}-sabado-period-${periodo.id}`} className="text-sm">
+                              {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
+                            </Label>
+                          </div>
+                        ))}
+                      </RadioGroup>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Domingo */}
+            {disponibilidade.domingo > 0 && (
+              <div className="border-b pb-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`${candidate.id}-domingo`}
+                    checked={selection.domingo.selected}
+                    onCheckedChange={(checked) =>
+                      handleDaySelectionChange(candidate.id, "domingo", "selected", checked)
+                    }
+                  />
+                  <Label htmlFor={`${candidate.id}-domingo`} className="text-sm font-medium">
+                    Domingo
+                  </Label>
+                </div>
+
+                {selection.domingo.selected && (
+                  <div className="ml-6 mt-2 space-y-3">
+                    <div>
+                      <Label htmlFor={`${candidate.id}-domingo-hours`} className="text-xs mb-1 block">
+                        Horas:
+                      </Label>
+                      <input
+                        id={`${candidate.id}-domingo-hours`}
+                        type="number"
+                        min="1"
+                        max={disponibilidade.domingo}
+                        value={selection.domingo.hours}
+                        onChange={(e) => {
+                          const value = e.target.value ? Number(e.target.value) : ""
+                          if (value === "" || (typeof value === "number" && value <= disponibilidade.domingo)) {
+                            handleDaySelectionChange(candidate.id, "domingo", "hours", value)
+                          }
+                        }}
+                        className="w-full rounded border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs mb-1 block">Período:</Label>
+                      <RadioGroup
+                        value={selection.domingo.period}
+                        onValueChange={(value) => handleDaySelectionChange(candidate.id, "domingo", "period", value)}
+                        className="space-y-1"
+                      >
+                        {localPeriodosPorDia["domingo"].map((periodo) => (
+                          <div key={periodo.id} className="flex items-center space-x-2">
+                            <RadioGroupItem
+                              value={String(periodo.id)}
+                              id={`${candidate.id}-domingo-period-${periodo.id}`}
+                            />
+                            <Label htmlFor={`${candidate.id}-domingo-period-${periodo.id}`} className="text-sm">
+                              {periodo.descricao} ({periodo.inicioFormatado} - {periodo.fimFormatado})
+                            </Label>
+                          </div>
+                        ))}
+                      </RadioGroup>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       <div className="flex justify-end mt-4">
         <Button
@@ -426,36 +446,19 @@ function DaySelectionForm({
 export function CandidateList({ title, description, candidates }: CandidateListProps) {
   console.log(`CandidateList recebeu ${candidates.length} candidatos`)
 
-  // Se houver candidatos, vamos verificar o primeiro para debug
-  if (candidates.length > 0) {
-    try {
-      console.log("Primeiro candidato:", JSON.stringify(candidates[0], replaceBigInt))
-      console.log("Status do primeiro candidato:", candidates[0].status_usuario)
-    } catch (error) {
-      console.error("Erro ao serializar candidato:", error)
-      console.log("Primeiro candidato (sem serialização):", candidates[0])
-    }
-  }
-
-  // Verificar quantos candidatos têm status_usuario definido
-  const candidatosComStatus = candidates.filter(
-    (c) => c.status_usuario !== undefined && c.status_usuario !== null,
-  ).length
-  console.log(`Candidatos com status_usuario definido: ${candidatosComStatus} de ${candidates.length}`)
-
   const { toast } = useToast()
   const { items, addItem, removeItem } = useCart()
 
   // Filtra apenas candidatos ativos e adiciona log para verificar
-  const activeCandidates = candidates.filter((candidate) => {
-    // Considerar como ativo se status_usuario for undefined, null, ou contiver a palavra "ativo" (case insensitive)
-    const isActive = !candidate.status_usuario || candidate.status_usuario.toLowerCase().includes("ativo")
-
-    if (!isActive) {
-      console.log(`Candidato ${candidate.id} (${candidate.nome}) filtrado por status: ${candidate.status_usuario}`)
-    }
-    return isActive
-  })
+  const activeCandidates = useMemo(() => {
+    return candidates.filter((candidate) => {
+      // Considerar como ativo se status_usuario for undefined, null, ou contiver a palavra "ativo" (case insensitive)
+      const isActive =
+        !candidate.status_usuario ||
+        (typeof candidate.status_usuario === "string" && candidate.status_usuario.toLowerCase().includes("ativo"))
+      return isActive
+    })
+  }, [candidates])
 
   console.log(`Após filtro de status: ${activeCandidates.length} candidatos ativos`)
 
@@ -465,39 +468,50 @@ export function CandidateList({ title, description, candidates }: CandidateListP
   const [loadingLojas, setLoadingLojas] = useState<boolean>(false)
   const [lojas, setLojas] = useState<Loja[]>([])
 
-  // Extrair todas as bandeiras únicas disponíveis
-  const bandeiras = Array.from(
-    new Set(
-      activeCandidates
-        .map((candidate) => candidate.bandeira)
-        .filter(Boolean), // Remover valores vazios
-    ),
-  ).sort() // Ordenar bandeiras alfabeticamente
-
-  // Modificar o useEffect que cria o mapa de bandeiras para IDs
-  useEffect(() => {
-    // Não vamos mais tentar acessar bandeira_id diretamente dos candidatos
-    // Em vez disso, vamos apenas armazenar os nomes das bandeiras
-    const bandeiraNames = Array.from(
-      new Set(activeCandidates.map((candidate) => candidate.bandeira).filter(Boolean)),
-    ).sort()
-
-    // Resetar a loja selecionada quando a lista de bandeiras mudar
-    setSelectedLoja("Todas")
+  // Extrair todas as bandeiras únicas disponíveis dos candidatos ativos
+  const bandeiras = useMemo(() => {
+    return Array.from(
+      new Set(
+        activeCandidates
+          .map((candidate) => candidate.bandeira)
+          .filter(Boolean), // Remover valores vazios
+      ),
+    ).sort() // Ordenar bandeiras alfabeticamente
   }, [activeCandidates])
 
-  // Carregar lojas quando a bandeira mudar
+  // Resetar a loja selecionada quando a bandeira mudar
   useEffect(() => {
-    // Modificar a função loadLojas para evitar atualizações desnecessárias
-    async function loadLojas() {
-      try {
-        setLoadingLojas(true)
+    setSelectedLoja("Todas")
+  }, [selectedBandeira])
 
+  // Aplicar filtros de bandeira e loja
+  const filteredCandidates = useMemo(() => {
+    return activeCandidates.filter((candidate) => {
+      // Filtrar por bandeira se uma bandeira específica for selecionada
+      if (selectedBandeira !== "Todas" && candidate.bandeira !== selectedBandeira) {
+        return false
+      }
+
+      // Filtrar por loja se uma loja específica for selecionada
+      if (selectedLoja !== "Todas" && candidate.loja !== selectedLoja) {
+        return false
+      }
+
+      return true
+    })
+  }, [activeCandidates, selectedBandeira, selectedLoja])
+
+  // Atualizar lojas disponíveis com base na bandeira selecionada e nos candidatos filtrados
+  useEffect(() => {
+    const updateLojas = () => {
+      setLoadingLojas(true)
+
+      try {
+        // Se "Todas" as bandeiras estiverem selecionadas, mostrar todas as lojas dos candidatos ativos
         if (selectedBandeira === "Todas") {
-          // Se "Todas" for selecionado, mostrar todas as lojas dos candidatos ativos
           const todasLojas = Array.from(new Set(activeCandidates.map((candidate) => candidate.loja).filter(Boolean)))
             .sort()
-            .map((nome, index) => ({ id: index + 1, nome }))
+            .map((nome, index) => ({ id: index + 1, nome: nome || "" }))
 
           setLojas(todasLojas)
           return
@@ -506,77 +520,39 @@ export function CandidateList({ title, description, candidates }: CandidateListP
         // Filtrar candidatos pela bandeira selecionada
         const candidatosDaBandeira = activeCandidates.filter((candidate) => candidate.bandeira === selectedBandeira)
 
-        if (candidatosDaBandeira.length > 0) {
-          // Extrair lojas únicas dos candidatos filtrados
-          const lojasUnicas = Array.from(
-            new Set(candidatosDaBandeira.map((candidate) => candidate.loja).filter(Boolean)),
-          )
-            .sort()
-            .map((nome, index) => ({ id: index + 1, nome }))
+        // Extrair lojas únicas dos candidatos filtrados pela bandeira
+        const lojasUnicas = Array.from(new Set(candidatosDaBandeira.map((candidate) => candidate.loja).filter(Boolean)))
+          .sort()
+          .map((nome, index) => ({ id: index + 1, nome: nome || "" }))
 
-          setLojas(lojasUnicas)
-        } else {
-          // Se não houver candidatos com esta bandeira, tentar buscar do banco de dados
-          try {
-            const bandeirasData = await getBandeiras()
-            const bandeiraSelecionada = bandeirasData.find((b) => b.nome === selectedBandeira)
-
-            if (bandeiraSelecionada) {
-              const lojasData = await getLojasPorBandeira(bandeiraSelecionada.id)
-              setLojas(lojasData)
-            } else {
-              console.error("Bandeira não encontrada:", selectedBandeira)
-              setLojas([])
-            }
-          } catch (error) {
-            console.error("Erro ao buscar bandeiras/lojas:", error)
-            setLojas([])
-          }
-        }
-      } catch (error) {
-        console.error("Erro ao carregar lojas:", error)
-        toast({
-          title: "Erro ao carregar lojas",
-          description: "Não foi possível carregar a lista de lojas para esta bandeira.",
-          variant: "destructive",
-        })
-        setLojas([])
+        setLojas(lojasUnicas)
       } finally {
         setLoadingLojas(false)
       }
     }
 
-    loadLojas()
-    // Remover activeCandidates da lista de dependências para evitar loops
-  }, [selectedBandeira, toast])
+    updateLojas()
+  }, [selectedBandeira, activeCandidates])
 
-  // Resetar a loja selecionada quando a bandeira mudar
-  useEffect(() => {
-    setSelectedLoja("Todas")
-  }, [selectedBandeira])
-
-  // Aplicar todos os filtros para obter a lista final de candidatos
-  const filteredCandidates = activeCandidates.filter((candidate) => {
-    // Adicionar logs para debug
-    console.log(`Verificando candidato ${candidate.id} (${candidate.nome}): status=${candidate.status_usuario}`)
-
-    // Não filtrar por bandeira ou loja, apenas garantir que o candidato tenha os dados básicos
-    return true // Mostrar todos os candidatos ativos
-  })
-
-  console.log(`Após remover filtros de bandeira/loja: ${filteredCandidates.length} candidatos`)
+  console.log(`Após aplicar filtros: ${filteredCandidates.length} candidatos`)
 
   // Ordena os candidatos por nome
-  const sortedCandidates = [...filteredCandidates].sort((a, b) => {
-    return a.promotor.localeCompare(b.promotor)
-  })
+  const sortedCandidates = useMemo(() => {
+    return [...filteredCandidates].sort((a, b) => {
+      const nameA = a.promotor || a.nome || ""
+      const nameB = b.promotor || b.nome || ""
+      return nameA.localeCompare(nameB)
+    })
+  }, [filteredCandidates])
 
   // Estado para controlar a paginação
   const [visibleCount, setVisibleCount] = useState(10)
   const hasMoreToShow = sortedCandidates.length > visibleCount
 
   // Candidatos visíveis com base na paginação
-  const visibleCandidates = sortedCandidates.slice(0, visibleCount)
+  const visibleCandidates = useMemo(() => {
+    return sortedCandidates.slice(0, visibleCount)
+  }, [sortedCandidates, visibleCount])
 
   // Estado para controlar quais candidatos têm o formulário de seleção aberto
   const [openSelectionForms, setOpenSelectionForms] = useState<Record<number, boolean>>({})
@@ -595,24 +571,48 @@ export function CandidateList({ title, description, candidates }: CandidateListP
     setTotalValue(total)
   }, [items])
 
-  // Inicializa as seleções para todos os candidatos visíveis
+  // Inicializa as seleções para todos os candidatos visíveis - VERSÃO CORRIGIDA
   useEffect(() => {
-    const newSelections: Record<number, Record<DiaDaSemana, DaySelection>> = { ...candidateSelections }
-    const hasChanges = false
+    // Criar uma cópia do estado atual
+    const newSelections = { ...candidateSelections }
+    let hasChanges = false
 
-    visibleCandidates.forEach((candidate) => {
-      // Se já existe uma seleção para este candidato, não fazer nada
-      if (newSelections[candidate.id]) return
+    // Verificar quais candidatos visíveis não têm seleções ainda
+    for (const candidate of visibleCandidates) {
+      if (!newSelections[candidate.id]) {
+        // Verificar se o candidato já está no carrinho
+        const existingItem = items.find((item) => item.id === candidate.id)
 
-      // Verificar se o candidato já está no carrinho
-      const existingItem = items.find((item) => item.id === candidate.id)
+        if (existingItem) {
+          // Se já estiver no carrinho, usar as seleções existentes
+          newSelections[candidate.id] = existingItem.selectedDays
+        } else {
+          // Caso contrário, inicializar com valores vazios
+          newSelections[candidate.id] = {
+            segunda: { selected: false, hours: "", period: "" },
+            terca: { selected: false, hours: "", period: "" },
+            quarta: { selected: false, hours: "", period: "" },
+            quinta: { selected: false, hours: "", period: "" },
+            sexta: { selected: false, hours: "", period: "" },
+            sabado: { selected: false, hours: "", period: "" },
+            domingo: { selected: false, hours: "", period: "" },
+          }
+        }
+        hasChanges = true
+      }
+    }
 
-      if (existingItem) {
-        // Se já estiver no carrinho, usar as seleções existentes
-        newSelections[candidate.id] = existingItem.selectedDays
-      } else {
-        // Caso contrário, inicializar com valores vazios
-        newSelections[candidate.id] = {
+    // Atualizar o estado apenas se houver mudanças
+    if (hasChanges) {
+      setCandidateSelections(newSelections)
+    }
+  }, [visibleCandidates, items]) // Remova candidateSelections das dependências
+
+  // Atualiza a seleção de um dia específico para um candidato
+  const handleDaySelectionChange = useCallback(
+    (candidateId: number, day: DiaDaSemana, field: keyof DaySelection, value: any) => {
+      setCandidateSelections((prev) => {
+        const candidateSelection = prev[candidateId] || {
           segunda: { selected: false, hours: "", period: "" },
           terca: { selected: false, hours: "", period: "" },
           quarta: { selected: false, hours: "", period: "" },
@@ -621,247 +621,194 @@ export function CandidateList({ title, description, candidates }: CandidateListP
           sabado: { selected: false, hours: "", period: "" },
           domingo: { selected: false, hours: "", period: "" },
         }
-      }
-    })
 
-    // Atualizar o estado apenas se houver mudanças
-    if (Object.keys(newSelections).length !== Object.keys(candidateSelections).length) {
-      setCandidateSelections(newSelections)
-    }
-  }, [visibleCandidates, items, candidateSelections])
+        // Se estamos desmarcando o dia, limpar as horas e período
+        if (field === "selected" && value === false) {
+          return {
+            ...prev,
+            [candidateId]: {
+              ...candidateSelection,
+              [day]: { selected: false, hours: "", period: "" },
+            },
+          }
+        }
 
-  // Atualiza a seleção de um dia específico para um candidato
-  const handleDaySelectionChange = (candidateId: number, day: DiaDaSemana, field: keyof DaySelection, value: any) => {
-    setCandidateSelections((prev) => {
-      const candidateSelection = prev[candidateId] || {
-        segunda: { selected: false, hours: "", period: "" },
-        terca: { selected: false, hours: "", period: "" },
-        quarta: { selected: false, hours: "", period: "" },
-        quinta: { selected: false, hours: "", period: "" },
-        sexta: { selected: false, hours: "", period: "" },
-        sabado: { selected: false, hours: "", period: "" },
-        domingo: { selected: false, hours: "", period: "" },
-      }
-
-      // Se estamos desmarcando o dia, limpar as horas e período
-      if (field === "selected" && value === false) {
         return {
           ...prev,
           [candidateId]: {
             ...candidateSelection,
-            [day]: { selected: false, hours: "", period: "" },
+            [day]: {
+              ...candidateSelection[day],
+              [field]: value,
+            },
           },
         }
-      }
-
-      return {
-        ...prev,
-        [candidateId]: {
-          ...candidateSelection,
-          [day]: {
-            ...candidateSelection[day],
-            [field]: value,
-          },
-        },
-      }
-    })
-  }
-
-  // Verifica se o candidato pode ser adicionado ao carrinho
-  const canAddCandidate = (candidateId: number, disponibilidade?: Disponibilidade) => {
-    const selection = candidateSelections[candidateId]
-    if (!selection) return false
-
-    // Verifica se pelo menos um dia foi selecionado
-    const hasSelectedDay = Object.values(selection).some((day) => day.selected)
-
-    if (!hasSelectedDay) {
-      console.log("Nenhum dia selecionado para o candidato", candidateId)
-      return false
-    }
-
-    // Verifica se todos os dias selecionados têm horas e período definidos
-    let allSelectedDaysComplete = true
-
-    // Adicionar logs para depuração
-    Object.entries(selection).forEach(([day, daySelection]) => {
-      if (daySelection.selected) {
-        const hasHours = daySelection.hours !== "" && Number(daySelection.hours) > 0
-        const hasPeriod = daySelection.period !== ""
-
-        console.log(
-          `Dia ${day}: selecionado=${daySelection.selected}, horas=${daySelection.hours}, período=${daySelection.period}`,
-        )
-        console.log(`Dia ${day} completo: ${hasHours && hasPeriod}`)
-
-        if (!hasHours || !hasPeriod) {
-          allSelectedDaysComplete = false
-        }
-      }
-    })
-
-    console.log("Todos os dias selecionados estão completos:", allSelectedDaysComplete)
-
-    // Retornar true se pelo menos um dia foi selecionado e todos os dias selecionados estão completos
-    return hasSelectedDay && allSelectedDaysComplete
-  }
-
-  // Adiciona ou remove um candidato do carrinho
-  const toggleCandidateSelection = async (candidate: Candidate) => {
-    // Verifica se já está no carrinho
-    const isAlreadySelected = items.some((c) => c.id === candidate.id)
-
-    if (isAlreadySelected) {
-      // Remove do carrinho
-      removeItem(candidate.id)
-    } else {
-      // Get disponibilidade from candidate
-      const disponibilidade = candidate.disponibilidades?.[0] || candidate.disponibilidade
-
-      if (!disponibilidade) {
-        toast({
-          title: "Erro ao adicionar promotor",
-          description: "Não foi possível encontrar a disponibilidade do promotor.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Verifica se as seleções estão completas
-      const selection = candidateSelections[candidate.id]
-
-      // Adicionar logs para depuração
-      console.log("Seleções do candidato:", selection)
-
-      // Verificar se pelo menos um dia foi selecionado
-      const hasSelectedDay = Object.values(selection).some((day) => day.selected)
-      console.log("Tem pelo menos um dia selecionado:", hasSelectedDay)
-
-      if (!hasSelectedDay) {
-        toast({
-          title: "Seleção incompleta",
-          description: "Por favor, selecione pelo menos um dia.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Verificar se todos os dias selecionados têm horas e período
-      let incompleteDay = null
-
-      for (const [day, daySelection] of Object.entries(selection)) {
-        if (daySelection.selected) {
-          if (daySelection.hours === "" || Number(daySelection.hours) <= 0) {
-            incompleteDay = `${diasDaSemana[day as DiaDaSemana]} (horas não definidas)`
-            break
-          }
-          if (daySelection.period === "") {
-            incompleteDay = `${diasDaSemana[day as DiaDaSemana]} (período não selecionado)`
-            break
-          }
-        }
-      }
-
-      if (incompleteDay) {
-        toast({
-          title: "Seleção incompleta",
-          description: `Por favor, complete a seleção para ${incompleteDay}.`,
-          variant: "destructive",
-        })
-        return
-      }
-
-      try {
-        // Calcula o total de horas e valor
-        let totalHours = 0
-        let totalValue = 0
-
-        // Usar Promise.all para processar todas as seleções em paralelo
-        const valorPromises = Object.entries(selection).map(async ([day, daySelection]) => {
-          if (daySelection.selected && daySelection.hours !== "") {
-            const hours = Number(daySelection.hours)
-            const periodoId = Number(daySelection.period)
-
-            try {
-              // Calcular o valor com base no promotor e período
-              const valorHora = await getValorHoraPromotorPeriodo(candidate.id, periodoId)
-              console.log(`Valor hora para ${day}: ${valorHora} (tipo: ${typeof valorHora})`)
-              return { day, hours, valorHora: Number(valorHora) }
-            } catch (error) {
-              console.error(`Erro ao obter valor da hora para ${day}:`, error)
-              return { day, hours, valorHora: 40 } // Valor padrão em caso de erro
-            }
-          }
-          return null
-        })
-
-        // Aguardar todos os cálculos de valor
-        const valores = (await Promise.all(valorPromises)).filter((v) => v !== null)
-
-        // Calcular totais
-        valores.forEach((v) => {
-          if (v) {
-            totalHours += v.hours
-            totalValue += v.hours * v.valorHora
-          }
-        })
-
-        const cartItem = {
-          id: candidate.id,
-          promotor: candidate.promotor || candidate.nome,
-          familia: candidate.familia || "",
-          cidade: candidate.cidade || "",
-          uf: candidate.uf || "",
-          bandeira: candidate.bandeira || "",
-          loja: candidate.loja || "",
-          cargo_campo: candidate.cargo_campo || "",
-          selectedDays: selection,
-          totalHours,
-          totalValue,
-        }
-
-        // Garantir que o cartItem seja serializável
-        const serializableCartItem = JSON.parse(JSON.stringify(cartItem))
-
-        addItem(serializableCartItem)
-
-        // Fechar o formulário após adicionar ao carrinho
-        setOpenSelectionForms((prev) => ({
-          ...prev,
-          [candidate.id]: false,
-        }))
-
-        toast({
-          title: "Promotor adicionado",
-          description: `${candidate.promotor || candidate.nome} foi adicionado ao carrinho`,
-          variant: "default",
-        })
-      } catch (error) {
-        console.error("Erro ao adicionar promotor:", error)
-        toast({
-          title: "Erro ao adicionar promotor",
-          description: "Ocorreu um erro ao calcular os valores. Tente novamente.",
-          variant: "destructive",
-        })
-      }
-    }
-  }
+      })
+    },
+    [],
+  )
 
   // Toggle para abrir/fechar o formulário de seleção
-  const toggleSelectionForm = (candidateId: number) => {
+  const toggleSelectionForm = useCallback((candidateId: number) => {
     setOpenSelectionForms((prev) => ({
       ...prev,
       [candidateId]: !prev[candidateId],
     }))
-  }
+  }, [])
+
+  // Adiciona ou remove um candidato do carrinho
+  const toggleCandidateSelection = useCallback(
+    async (candidate: Candidate) => {
+      // Verifica se já está no carrinho
+      const isAlreadySelected = items.some((c) => c.id === candidate.id)
+
+      if (isAlreadySelected) {
+        // Remove do carrinho
+        removeItem(candidate.id)
+      } else {
+        // Get disponibilidade from candidate
+        const disponibilidade = candidate.disponibilidades?.[0] || candidate.disponibilidade
+
+        if (!disponibilidade) {
+          toast({
+            title: "Erro ao adicionar promotor",
+            description: "Não foi possível encontrar a disponibilidade do promotor.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        // Verifica se as seleções estão completas
+        const selection = candidateSelections[candidate.id]
+        if (!selection) {
+          toast({
+            title: "Erro ao adicionar promotor",
+            description: "Não foi possível encontrar as seleções para este promotor.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        // Verificar se pelo menos um dia foi selecionado
+        const hasSelectedDay = Object.values(selection).some((day) => day.selected)
+        if (!hasSelectedDay) {
+          toast({
+            title: "Seleção incompleta",
+            description: "Por favor, selecione pelo menos um dia.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        // Verificar se todos os dias selecionados têm horas e período
+        let incompleteDay = null
+
+        for (const [day, daySelection] of Object.entries(selection)) {
+          if (daySelection.selected) {
+            if (daySelection.hours === "" || Number(daySelection.hours) <= 0) {
+              incompleteDay = `${diasDaSemana[day as DiaDaSemana]} (horas não definidas)`
+              break
+            }
+            if (daySelection.period === "") {
+              incompleteDay = `${diasDaSemana[day as DiaDaSemana]} (período não selecionado)`
+              break
+            }
+          }
+        }
+
+        if (incompleteDay) {
+          toast({
+            title: "Seleção incompleta",
+            description: `Por favor, complete a seleção para ${incompleteDay}.`,
+            variant: "destructive",
+          })
+          return
+        }
+
+        try {
+          // Calcula o total de horas e valor
+          let totalHours = 0
+          let totalValue = 0
+
+          // Usar Promise.all para processar todas as seleções em paralelo
+          const valorPromises = Object.entries(selection).map(async ([day, daySelection]) => {
+            if (daySelection.selected && daySelection.hours !== "") {
+              const hours = Number(daySelection.hours)
+              const periodoId = Number(daySelection.period)
+
+              try {
+                // Calcular o valor com base no promotor e período
+                const valorHora = await getValorHoraPromotorPeriodo(candidate.id, periodoId)
+                return { day, hours, valorHora: Number(valorHora) }
+              } catch (error) {
+                console.error(`Erro ao obter valor da hora para ${day}:`, error)
+                return { day, hours, valorHora: 40 } // Valor padrão em caso de erro
+              }
+            }
+            return null
+          })
+
+          // Aguardar todos os cálculos de valor
+          const valores = (await Promise.all(valorPromises)).filter((v) => v !== null)
+
+          // Calcular totais
+          valores.forEach((v) => {
+            if (v) {
+              totalHours += v.hours
+              totalValue += v.hours * v.valorHora
+            }
+          })
+
+          const cartItem = {
+            id: candidate.id,
+            promotor: candidate.promotor || candidate.nome,
+            familia: candidate.familia || "",
+            cidade: candidate.cidade || "",
+            uf: candidate.uf || "",
+            bandeira: candidate.bandeira || "",
+            loja: candidate.loja || "",
+            cargo_campo: candidate.cargo_campo || "",
+            selectedDays: selection,
+            totalHours,
+            totalValue,
+          }
+
+          // Garantir que o cartItem seja serializável
+          const serializableCartItem = JSON.parse(JSON.stringify(cartItem))
+
+          addItem(serializableCartItem)
+
+          // Fechar o formulário após adicionar ao carrinho
+          setOpenSelectionForms((prev) => ({
+            ...prev,
+            [candidate.id]: false,
+          }))
+
+          toast({
+            title: "Promotor adicionado",
+            description: `${candidate.promotor || candidate.nome} foi adicionado ao carrinho`,
+            variant: "default",
+          })
+        } catch (error) {
+          console.error("Erro ao adicionar promotor:", error)
+          toast({
+            title: "Erro ao adicionar promotor",
+            description: "Ocorreu um erro ao calcular os valores. Tente novamente.",
+            variant: "destructive",
+          })
+        }
+      }
+    },
+    [items, removeItem, candidateSelections, toast, addItem],
+  )
 
   // Função para carregar mais candidatos
-  const loadMoreCandidates = () => {
+  const loadMoreCandidates = useCallback(() => {
     setVisibleCount((prev) => Math.min(prev + 10, sortedCandidates.length))
-  }
+  }, [sortedCandidates.length])
 
   // Função para renderizar a disponibilidade do promotor
-  const renderDisponibilidade = (disponibilidade?: Disponibilidade) => {
+  const renderDisponibilidade = useCallback((disponibilidade?: Disponibilidade) => {
     if (!disponibilidade) return null
 
     return (
@@ -899,10 +846,10 @@ export function CandidateList({ title, description, candidates }: CandidateListP
         </div>
       </div>
     )
-  }
+  }, [])
 
   // Função para lidar com a confirmação do pedido
-  const handleConfirmOrder = () => {
+  const handleConfirmOrder = useCallback(() => {
     if (!paymentMethod) {
       toast({
         title: "Selecione uma forma de pagamento",
@@ -927,7 +874,7 @@ export function CandidateList({ title, description, candidates }: CandidateListP
     // Fechar modal e limpar carrinho
     setCheckoutModalOpen(false)
     setPaymentMethod("")
-  }
+  }, [paymentMethod, toast, totalValue, items])
 
   return (
     <>
@@ -940,15 +887,54 @@ export function CandidateList({ title, description, candidates }: CandidateListP
             </div>
             <CardDescription>{description}</CardDescription>
 
-            {/* Filtros - Desabilitados temporariamente */}
+            {/* Filtros ativos */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-              <div>
-                <label className="block text-sm font-medium text-muted-foreground">
-                  Filtros desabilitados temporariamente
+              {/* Filtro de Bandeira */}
+              <div className="space-y-2">
+                <label htmlFor="bandeira-filter" className="block text-sm font-medium">
+                  Bandeira
                 </label>
-                <p className="text-xs text-muted-foreground">
-                  Os filtros de bandeira e loja foram desabilitados devido a problemas no banco de dados.
-                </p>
+                <select
+                  id="bandeira-filter"
+                  value={selectedBandeira}
+                  onChange={(e) => setSelectedBandeira(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="Todas">Todas as Bandeiras</option>
+                  {bandeiras.map((bandeira) => (
+                    <option key={bandeira} value={bandeira}>
+                      {bandeira}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro de Loja */}
+              <div className="space-y-2">
+                <label htmlFor="loja-filter" className="block text-sm font-medium">
+                  Loja
+                </label>
+                <div className="relative">
+                  <select
+                    id="loja-filter"
+                    value={selectedLoja}
+                    onChange={(e) => setSelectedLoja(e.target.value)}
+                    disabled={loadingLojas}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="Todas">{loadingLojas ? "Carregando lojas..." : "Todas as Lojas"}</option>
+                    {lojas.map((loja) => (
+                      <option key={loja.id} value={loja.nome}>
+                        {loja.nome}
+                      </option>
+                    ))}
+                  </select>
+                  {loadingLojas && (
+                    <div className="absolute right-2 top-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

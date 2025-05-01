@@ -1,17 +1,15 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { searchCandidatesByLocation, getCidadesPorUF, getUFs } from "@/lib/actions"
-import { Loader2 } from "lucide-react"
+import { Loader2, Search } from "lucide-react"
 
+// Modificando a interface para remover as funções de callback
 interface LocationSearchFormProps {
-  onResults: (results: any[]) => void
-  setLoading: (loading: boolean) => void
-  setLocationInfo: (info: { uf: string; cidade: string }) => void
+  onSearchComplete?: (results: any[], locationInfo: { uf: string; cidade: string }) => void
 }
 
 interface Cidade {
@@ -19,12 +17,7 @@ interface Cidade {
   nome: string
 }
 
-// Função auxiliar para serializar BigInt
-function replaceBigInt(key: string, value: any) {
-  return typeof value === "bigint" ? value.toString() : value
-}
-
-export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: LocationSearchFormProps) {
+export function LocationSearchForm({ onSearchComplete }: LocationSearchFormProps) {
   const [selectedUF, setSelectedUF] = useState("")
   const [selectedCidade, setSelectedCidade] = useState("")
   const [cidades, setCidades] = useState<Cidade[]>([])
@@ -32,16 +25,14 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
   const [error, setError] = useState<string | null>(null)
   const [loadingUFs, setLoadingUFs] = useState(true)
   const [loadingCidades, setLoadingCidades] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
 
   // Carregar UFs ao inicializar
   useEffect(() => {
     const loadUFs = async () => {
       try {
         setLoadingUFs(true)
-        console.log("Carregando UFs...")
         const data = await getUFs()
-        console.log("UFs carregadas:", data)
-        // As UFs já vêm ordenadas da função getUFs()
         setUfs(data)
         setError(null)
       } catch (error) {
@@ -67,7 +58,6 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
         setLoadingCidades(true)
         // Carregar cidades para o UF selecionado
         const cidadesData = await getCidadesPorUF(value)
-        // As cidades já vêm ordenadas da função getCidadesPorUF()
         setCidades(cidadesData)
       } catch (error) {
         console.error("Erro ao carregar cidades:", error)
@@ -85,7 +75,6 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
     }
   }
 
-  // Modifique a função handleSubmit para garantir que os resultados sejam serializáveis
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -95,10 +84,8 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
     }
 
     try {
-      setLoading(true)
+      setIsSearching(true)
       setError(null)
-
-      console.log(`Iniciando busca de promotores em ${selectedCidade}/${selectedUF}`)
 
       const results = await searchCandidatesByLocation({
         uf: selectedUF,
@@ -107,21 +94,13 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
         loja: "Todas",
       })
 
-      console.log(`Busca concluída: ${results.length} promotores encontrados`)
-
-      // Verificar se os resultados têm a estrutura esperada
-      if (results.length > 0) {
-        // Use a função replaceBigInt para serializar BigInt
-        console.log("Exemplo do primeiro resultado:", JSON.stringify(results[0], replaceBigInt))
+      // Se o componente pai forneceu um callback, chame-o com os resultados
+      if (onSearchComplete) {
+        onSearchComplete(results, {
+          uf: selectedUF,
+          cidade: selectedCidade,
+        })
       }
-
-      setLocationInfo({
-        uf: selectedUF,
-        cidade: selectedCidade,
-      })
-
-      // Garantir que os resultados sejam passados para o componente pai
-      onResults(results)
 
       if (results.length === 0) {
         setError(`Não encontramos promotores disponíveis em ${selectedCidade}/${selectedUF}`)
@@ -130,12 +109,12 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
       console.error("Erro na busca:", error)
       setError(error.message || "Não foi possível encontrar promotores com os filtros selecionados")
     } finally {
-      setLoading(false)
+      setIsSearching(false)
     }
   }
 
   return (
-    <Card>
+    <Card className="shadow-md border-t-4 border-t-primary">
       <CardContent className="pt-6">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -150,7 +129,7 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
                   value={selectedUF}
                   onChange={handleUFChange}
                   disabled={loadingUFs}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary"
                 >
                   <option value="">Selecione o Estado</option>
                   {ufs.map((uf) => (
@@ -161,7 +140,7 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
                 </select>
                 {loadingUFs && (
                   <div className="absolute right-2 top-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
                   </div>
                 )}
               </div>
@@ -178,7 +157,7 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
                   value={selectedCidade}
                   onChange={(e) => setSelectedCidade(e.target.value)}
                   disabled={cidades.length === 0 || loadingCidades}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary"
                 >
                   <option value="">
                     {loadingCidades
@@ -195,7 +174,7 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
                 </select>
                 {loadingCidades && (
                   <div className="absolute right-2 top-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
                   </div>
                 )}
               </div>
@@ -205,8 +184,18 @@ export function LocationSearchForm({ onResults, setLoading, setLocationInfo }: L
           {error && <div className="text-sm text-red-500 bg-red-50 p-2 rounded border border-red-200">{error}</div>}
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={!selectedUF || !selectedCidade}>
-              Buscar Promotores
+            <Button type="submit" disabled={!selectedUF || !selectedCidade || isSearching} className="gm-gradient-bg">
+              {isSearching ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Buscando...
+                </>
+              ) : (
+                <>
+                  <Search className="mr-2 h-4 w-4" />
+                  Buscar Promotores
+                </>
+              )}
             </Button>
           </div>
         </form>
