@@ -440,7 +440,8 @@ export async function getUFs() {
   }
 }
 
-// Modificar a função getPeriodosByTipoDia para formatar corretamente as datas
+// Substitua a função getPeriodosByTipoDia pela versão corrigida que usa SQL bruto:
+
 export async function getPeriodosByTipoDia(tipoDia: string) {
   try {
     console.log(`Buscando períodos para tipo de dia: ${tipoDia}`)
@@ -453,18 +454,24 @@ export async function getPeriodosByTipoDia(tipoDia: string) {
       tipoDiaBanco = "segunda_sexta"
     }
 
-    // Buscar períodos usando Prisma
-    const periodos = await prisma.periodo.findMany({
-      where: {
-        tipo_dia: tipoDiaBanco,
-      },
-      orderBy: {
-        id: "asc",
-      },
-    })
+    // Usar SQL bruto para evitar problemas de tipagem com os campos de data
+    const periodos = await prisma.$queryRaw`
+      SELECT 
+        id, 
+        tipo_dia, 
+        inicio, 
+        fim, 
+        descricao
+      FROM 
+        promotores.periodos
+      WHERE 
+        tipo_dia = ${tipoDiaBanco}
+      ORDER BY 
+        id ASC
+    `
 
     // Formatar os horários para exibição
-    const formattedPeriodos = periodos.map((periodo) => {
+    const formattedPeriodos = (periodos as any[]).map((periodo) => {
       // Verificar se inicio e fim são objetos Date válidos e converter se necessário
       let inicio: Date
       let fim: Date
@@ -486,9 +493,13 @@ export async function getPeriodosByTipoDia(tipoDia: string) {
       }
 
       return {
-        ...periodo,
+        id: Number(periodo.id),
+        tipo_dia: String(periodo.tipo_dia),
+        inicio: periodo.inicio,
+        fim: periodo.fim,
+        descricao: String(periodo.descricao || ""),
         inicioFormatado: formatDateTime(inicio),
-        fimFormatado: formatDateTime(fim),
+        fimFormatado: formatDateTime(inicio),
       }
     })
 
