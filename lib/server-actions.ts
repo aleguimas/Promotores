@@ -1,6 +1,7 @@
 "use server"
 
 import prisma from "@/lib/prisma"
+import { getCurrentUser } from "@/lib/auth"
 
 export async function checkDatabaseConnection() {
   try {
@@ -65,7 +66,7 @@ export async function seedDatabaseIfEmpty() {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS bandeiras (
           id SERIAL PRIMARY KEY,
-          nome VARCHAR(255) NOT NULL,
+          nome VARCHAR(255) NOT NULL UNIQUE,
           descricao TEXT
         )
       `
@@ -181,49 +182,65 @@ export async function seedDatabaseIfEmpty() {
     // Criar promotores de exemplo para cada local
     for (const local of locais) {
       for (const cidade of local.cidades) {
-        // Verificar se o promotor já existe
-        const promotorExistente = await prisma.promotor.findFirst({
-          where: {
-            nome: `Promotor ${cidade}`,
-            cidade: cidade,
-            uf: local.uf,
-          },
-        })
+        // Verificar se o promotor já existe usando SQL bruto
+        const promotorExistente = await prisma.$queryRaw`
+          SELECT id FROM promotores.promotores 
+          WHERE nome = ${`Promotor ${cidade}`} 
+          AND cidade = ${cidade} 
+          AND uf = ${local.uf}
+          LIMIT 1
+        `
 
-        if (!promotorExistente) {
-          // Criar promotor
-          const promotor = await prisma.promotor.create({
-            data: {
-              nome: `Promotor ${cidade}`,
-              cpf: `${Math.floor(Math.random() * 99999999999)
+        if ((promotorExistente as any[]).length === 0) {
+          // Criar promotor usando SQL bruto para evitar problemas de tipagem
+          const promotorResult = await prisma.$executeRaw`
+            INSERT INTO promotores.promotores (
+              nome, 
+              cpf, 
+              endereco, 
+              bairro, 
+              cidade, 
+              uf, 
+              cep, 
+              familia, 
+              horasistema, 
+              status_usuario, 
+              latitude, 
+              longitude
+            ) VALUES (
+              ${`Promotor ${cidade}`},
+              ${Math.floor(Math.random() * 99999999999)
                 .toString()
-                .padStart(11, "0")}`,
-              endereco: `Rua Exemplo, ${Math.floor(Math.random() * 1000)}`,
-              bairro: `Bairro ${Math.floor(Math.random() * 10) + 1}`,
-              cidade: cidade,
-              uf: local.uf,
-              cep: `${Math.floor(Math.random() * 99999999)
+                .padStart(11, "0")},
+              ${`Rua Exemplo, ${Math.floor(Math.random() * 1000)}`},
+              ${`Bairro ${Math.floor(Math.random() * 10) + 1}`},
+              ${cidade},
+              ${local.uf},
+              ${Math.floor(Math.random() * 99999999)
                 .toString()
-                .padStart(8, "0")}`,
-              familia: "Geral",
-              horasistema: "40",
-              status_usuario: "Ativo",
-              latitude: -23.5505 + (Math.random() - 0.5) * 10,
-              longitude: -46.6333 + (Math.random() - 0.5) * 10,
-            },
-          })
+                .padStart(8, "0")},
+              ${"Geral"},
+              ${"40"},
+              ${"Ativo"},
+              ${-23.5505 + (Math.random() - 0.5) * 10},
+              ${-46.6333 + (Math.random() - 0.5) * 10}
+            ) RETURNING id
+          `
+
+          // Obter o ID do promotor inserido
+          const promotorId = (promotorResult as any)[0]?.id
 
           // Criar disponibilidade para o promotor
           await prisma.disponibilidade.create({
             data: {
-              promotor_id: promotor.id,
-              segunda: "8",
-              terca: "8",
-              quarta: "8",
-              quinta: "8",
-              sexta: "8",
-              sabado: "4",
-              domingo: "0",
+              promotor_id: promotorId,
+              segunda: 8,
+              terca: 8,
+              quarta: 8,
+              quinta: 8,
+              sexta: 8,
+              sabado: 4,
+              domingo: 0,
             },
           })
 
@@ -238,7 +255,7 @@ export async function seedDatabaseIfEmpty() {
           for (const loja of lojasParaAssociar) {
             await prisma.$executeRaw`
               INSERT INTO promotor_loja (promotor_id, loja_id)
-              VALUES (${promotor.id}, ${loja.id})
+              VALUES (${promotorId}, ${loja.id})
               ON CONFLICT DO NOTHING
             `
           }
@@ -259,11 +276,11 @@ export async function seedDatabaseIfEmpty() {
             try {
               await prisma.$executeRaw`
                 INSERT INTO valores_promotor_periodo (promotor_id, periodo_id, valor_hora, data_inicio)
-                VALUES (${promotor.id}, ${periodo.id}, ${valorBase}, CURRENT_TIMESTAMP)
+                VALUES (${promotorId}, ${periodo.id}, ${valorBase}, CURRENT_TIMESTAMP)
                 ON CONFLICT DO NOTHING
               `
             } catch (error) {
-              console.error(`Erro ao inserir valor para promotor ${promotor.id} e período ${periodo.id}:`, error)
+              console.error(`Erro ao inserir valor para promotor ${promotorId} e período ${periodo.id}:`, error)
             }
           }
         }
@@ -308,8 +325,20 @@ async function getValorHoraPromotorPeriodo(promotorId: number, periodoId: number
   }
 }
 
+// Interface para os itens do pedido na função registrarPedido
+interface PedidoItemInput {
+  promotorId: number
+  diasSelecionados: {
+    [key: string]: {
+      selected: boolean
+      hours: number | string
+      period: string
+    }
+  }
+}
+
 // Atualizar a função registrarPedido para usar o ID do cliente autenticado
-export async function registrarPedido(clienteId: number, formaPagamento: string, pedidoItens: any) {
+export async function registrarPedido(clienteId: number, formaPagamento: string, pedidoItens: PedidoItemInput[]) {
   try {
     // Verificar se o cliente existe
     if (!clienteId) {
@@ -470,6 +499,125 @@ export async function debugDatabase() {
     return {
       success: false,
       error: String(error),
+    }
+  }
+}
+
+// Interface para os itens do pedido na função getPedidosUsuario
+interface PedidoItemDetalhe {
+  id: number
+  promotor_nome: string
+  dia_semana: string
+  periodo_descricao: string
+  horas: number
+  valor_hora: number
+  valor_total: number
+}
+
+// Interface para o pedido na função getPedidosUsuario
+interface PedidoDetalhe {
+  id: number
+  data_criacao: string
+  status: string
+  forma_pagamento: string
+  valor_total: number
+  itens: PedidoItemDetalhe[]
+}
+
+// Interface para o resultado da função getPedidosUsuario
+interface PedidosResult {
+  success: boolean
+  pedidos: PedidoDetalhe[]
+  message?: string
+}
+
+// Função para buscar os pedidos do usuário
+export async function getPedidosUsuario(userId: number): Promise<PedidosResult> {
+  try {
+    // Verificar se o usuário está autenticado
+    const currentUser = await getCurrentUser()
+
+    if (!currentUser || currentUser.id !== userId) {
+      return {
+        success: false,
+        message: "Usuário não autorizado",
+        pedidos: [], // Garantir que pedidos seja sempre um array
+      }
+    }
+
+    // Buscar os pedidos do usuário usando SQL bruto para evitar problemas de tipagem
+    const pedidosRaw = await prisma.$queryRaw`
+      SELECT 
+        p.id, 
+        p.data_criacao, 
+        p.status, 
+        p.forma_pagamento
+      FROM 
+        promotores.pedidos p
+      WHERE 
+        p.cliente_id = ${userId}
+      ORDER BY 
+        p.data_criacao DESC
+    `
+
+    // Buscar os itens de cada pedido
+    const pedidosFormatados: PedidoDetalhe[] = await Promise.all(
+      (pedidosRaw as any[]).map(async (pedido) => {
+        // Buscar os itens do pedido
+        const itensRaw = await prisma.$queryRaw`
+          SELECT 
+            sp.id,
+            sp.dia_semana,
+            sp.horas,
+            sp.valor_hora,
+            sp.valor_total,
+            pr.nome as promotor_nome,
+            pe.descricao as periodo_descricao
+          FROM 
+            promotores.selecao_promotores sp
+          JOIN 
+            promotores.promotores pr ON sp.promotor_id = pr.id
+          JOIN 
+            promotores.periodos pe ON sp.periodo_id = pe.id
+          WHERE 
+            sp.pedido_id = ${pedido.id}
+        `
+
+        // Calcular o valor total do pedido
+        const valorTotal = (itensRaw as any[]).reduce((total: number, item: any) => total + Number(item.valor_total), 0)
+
+        // Converter os itens para o formato esperado
+        const itens: PedidoItemDetalhe[] = (itensRaw as any[]).map((item: any) => ({
+          id: Number(item.id),
+          promotor_nome: String(item.promotor_nome),
+          dia_semana: String(item.dia_semana),
+          periodo_descricao: String(item.periodo_descricao),
+          horas: Number(item.horas),
+          valor_hora: Number(item.valor_hora),
+          valor_total: Number(item.valor_total),
+        }))
+
+        return {
+          id: Number(pedido.id),
+          data_criacao: new Date(pedido.data_criacao).toISOString(),
+          status: String(pedido.status),
+          forma_pagamento: String(pedido.forma_pagamento),
+          valor_total: valorTotal,
+          itens: itens,
+        }
+      }),
+    )
+
+    return {
+      success: true,
+      pedidos: pedidosFormatados,
+    }
+  } catch (error) {
+    console.error("Erro ao buscar pedidos do usuário:", error)
+    return {
+      success: false,
+      message: "Erro ao buscar pedidos",
+      pedidos: [], // Garantir que pedidos seja sempre um array
     }
   }
 }

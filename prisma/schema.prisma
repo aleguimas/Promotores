@@ -14,7 +14,7 @@ datasource db {
 
 model Bandeira {
   id        Int     @id @default(autoincrement())
-  nome      String
+  nome      String  @unique
   descricao String?
   lojas     Loja[]
 
@@ -39,16 +39,23 @@ model Loja {
 }
 
 model Promotor {
-  id            Int             @id @default(autoincrement())
-  nome          String
-  cpf           String?
-  familia       String?
-  horasistema   String?
-  cargo_campo   String?
+  id             Int             @id @default(autoincrement())
+  nome           String
+  cpf            String?
+  familia        String?
+  horasistema    String?
+  cargo_campo    String?
   status_usuario String?
+  endereco       String?
+  bairro         String?
+  cidade         String?
+  uf             String?
+  cep            String?
+  latitude       Float?
+  longitude      Float?
   disponibilidades Disponibilidade[]
-  lojas         PromotorLoja[]
-  selecoes      SelecaoPromotor[]
+  lojas          PromotorLoja[]
+  selecoes       SelecaoPromotor[]
 
   @@map("promotores")
   @@schema("promotores")
@@ -84,10 +91,11 @@ model PromotorLoja {
 model Periodo {
   id          Int              @id @default(autoincrement())
   tipo_dia    String
-  inicio      DateTime
-  fim         DateTime
+  inicio      String
+  fim         String
   descricao   String
   selecoes    SelecaoPromotor[]
+  valores     ValorPromotorPeriodo[]
 
   @@map("periodos")
   @@schema("promotores")
@@ -100,6 +108,7 @@ model ValorPromotorPeriodo {
   valor_hora  Float
   data_inicio DateTime  @default(now())
   data_fim    DateTime?
+  periodo     Periodo   @relation(fields: [periodo_id], references: [id])
 
   @@map("valores_promotor_periodo")
   @@schema("promotores")
@@ -124,7 +133,7 @@ model Pedido {
   forma_pagamento String
   status          String
   cliente         Cliente          @relation(fields: [cliente_id], references: [id])
-  selecoes        SelecaoPromotor[]
+  selecaoPromotor SelecaoPromotor[]
 
   @@map("pedidos")
   @@schema("promotores")

@@ -5,9 +5,11 @@ import { useCart } from "../contexts/cart-context"
 import { ModeToggle } from "./mode-toggle"
 import { AuthButton } from "./auth-button"
 import Link from "next/link"
+import { useAuth } from "../contexts/auth-context"
 
 export function SiteHeader() {
   const { totalValue, totalItems } = useCart()
+  const { isAuthenticated } = useAuth()
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -20,6 +22,18 @@ export function SiteHeader() {
               className="h-8 w-auto"
             />
           </Link>
+
+          {isAuthenticated && (
+            <nav className="ml-6 hidden md:flex">
+              <ul className="flex items-center gap-6">
+                <li>
+                  <Link href="/meus-pedidos" className="text-sm font-medium transition-colors hover:text-primary">
+                    Meus Pedidos
+                  </Link>
+                </li>
+              </ul>
+            </nav>
+          )}
         </div>
 
         <div className="flex items-center gap-4">
